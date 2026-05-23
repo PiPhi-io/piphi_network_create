@@ -1,0 +1,25 @@
+package main
+
+var endpoints = map[string]string{
+	"health":      "/health",
+	"diagnostics": "/diagnostics",
+	"discover":    "/discover",
+	"entities":    "/entities",
+	"state":       "/state",
+	"config":      "/config",
+	"config_sync": "/config/sync",
+	"deconfigure": "/deconfigure",
+	"ui_config":   "/ui-config",
+	"events":      "/events",
+	"command":     "/command",
+}
+
+var requiredEndpoints = []string{"health", "entities", "command", "config", "ui_config"}
+
+var capabilities = map[string]any{"connected": map[string]any{"kind": "sensor", "unit": "bool"}, "temperature_c": map[string]any{"kind": "sensor", "unit": "C"}, "refresh": map[string]any{"kind": "action"}, "service_available": map[string]any{"kind": "sensor", "unit": "bool"}, "queue_depth": map[string]any{"kind": "sensor", "unit": "items"}, "restart_worker": map[string]any{"kind": "action"}}
+
+var commands = map[string]any{"refresh": map[string]any{"description": "Refresh the device state.", "timeout_ms": 5000}, "restart_worker": map[string]any{"description": "Restart the sidecar worker loop.", "timeout_ms": 10000}}
+
+var configSchema = map[string]any{"schema": map[string]any{"title": "Go Sidecar Worker Runtime Setup", "type": "object", "required": []any{"host"}, "properties": map[string]any{"host": map[string]any{"type": "string", "title": "Host"}, "alias": map[string]any{"type": "string", "title": "Alias"}, "service_name": map[string]any{"type": "string", "title": "Service Name"}}}, "uiSchema": map[string]any{"host": map[string]any{"placeholder": "192.168.1.50"}, "alias": map[string]any{"placeholder": "Office Device"}, "service_name": map[string]any{"placeholder": "local-helper"}}}
+
+var fallbackEntity = map[string]any{"id": "demo-device", "name": "Demo Device", "device_id": "demo-device", "entity_type": "sensor", "capabilities": []any{"connected", "temperature_c", "refresh", "service_available", "queue_depth", "restart_worker"}, "available_commands": []any{map[string]any{"id": "refresh", "label": "Refresh", "kind": "action"}, map[string]any{"id": "restart_worker", "label": "Restart Worker", "kind": "action"}}, "dashboard": map[string]any{"allowed_widgets": []any{"tile", "stat", "button"}, "default_widget": "tile"}}

@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+from typing import Any
+
+ENDPOINTS = {
+    "health": "/health",
+    "diagnostics": "/diagnostics",
+    "discover": "/discover",
+    "entities": "/entities",
+    "state": "/state",
+    "config": "/config",
+    "config_sync": "/config/sync",
+    "deconfigure": "/deconfigure",
+    "ui_config": "/ui-config",
+    "events": "/events",
+    "command": "/command",
+}
+
+REQUIRED_ENDPOINTS = ["health", "entities", "command", "config", "ui_config"]
+
+CAPABILITIES: dict[str, dict[str, Any]] = {
+    "connected": {
+        "kind": "sensor",
+        "unit": "bool"
+    },
+    "temperature_c": {
+        "kind": "sensor",
+        "unit": "C"
+    },
+    "refresh": {
+        "kind": "action"
+    },
+    "webhook_events_total": {
+        "kind": "sensor",
+        "unit": "events"
+    },
+    "last_event_age_seconds": {
+        "kind": "sensor",
+        "unit": "s"
+    },
+    "replay_webhook": {
+        "kind": "action"
+    }
+}
+
+COMMANDS: dict[str, dict[str, Any]] = {
+    "refresh": {
+        "description": "Refresh the device state.",
+        "timeout_ms": 5000
+    },
+    "replay_webhook": {
+        "description": "Replay the latest received webhook payload.",
+        "timeout_ms": 10000
+    }
+}
+
+CONFIG_SCHEMA: dict[str, Any] = {
+    "schema": {
+        "title": "Python Webhook Receiver Runtime Setup",
+        "type": "object",
+        "required": [
+            "host"
+        ],
+        "properties": {
+            "host": {
+                "type": "string",
+                "title": "Host"
+            },
+            "alias": {
+                "type": "string",
+                "title": "Alias"
+            },
+            "webhook_secret": {
+                "type": "string",
+                "title": "Webhook Secret"
+            },
+            "source_name": {
+                "type": "string",
+                "title": "Source Name"
+            }
+        }
+    },
+    "uiSchema": {
+        "host": {
+            "placeholder": "192.168.1.50"
+        },
+        "alias": {
+            "placeholder": "Office Device"
+        },
+        "webhook_secret": {
+            "placeholder": "shared-secret"
+        },
+        "source_name": {
+            "placeholder": "vendor-webhook"
+        }
+    }
+}
+
+FALLBACK_ENTITY: dict[str, Any] = {
+    "id": "demo-device",
+    "name": "Demo Device",
+    "device_id": "demo-device",
+    "entity_type": "sensor",
+    "capabilities": [
+        "connected",
+        "temperature_c",
+        "refresh",
+        "webhook_events_total",
+        "last_event_age_seconds",
+        "replay_webhook"
+    ],
+    "available_commands": [
+        {
+            "id": "refresh",
+            "label": "Refresh",
+            "kind": "action"
+        },
+        {
+            "id": "replay_webhook",
+            "label": "Replay Webhook",
+            "kind": "action"
+        }
+    ],
+    "dashboard": {
+        "allowed_widgets": [
+            "tile",
+            "stat",
+            "button"
+        ],
+        "default_widget": "tile"
+    }
+}

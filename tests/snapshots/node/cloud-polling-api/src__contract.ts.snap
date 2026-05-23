@@ -1,0 +1,136 @@
+export const endpoints = {
+  health: "/health",
+  diagnostics: "/diagnostics",
+  discover: "/discover",
+  entities: "/entities",
+  state: "/state",
+  config: "/config",
+  configSync: "/config/sync",
+  deconfigure: "/deconfigure",
+  uiConfig: "/ui-config",
+  events: "/events",
+  command: "/command",
+} as const;
+
+export const requiredEndpoints = ["health", "entities", "command", "config", "ui_config"] as const;
+
+export const capabilities = {
+  "connected": {
+    "kind": "sensor",
+    "unit": "bool"
+  },
+  "temperature_c": {
+    "kind": "sensor",
+    "unit": "C"
+  },
+  "refresh": {
+    "kind": "action"
+  },
+  "api_rate_limit_remaining": {
+    "kind": "sensor",
+    "unit": "requests"
+  },
+  "api_latency_ms": {
+    "kind": "sensor",
+    "unit": "ms"
+  },
+  "sync_cloud": {
+    "kind": "action"
+  }
+} as const;
+
+export const commands = {
+  "refresh": {
+    "description": "Refresh the device state.",
+    "timeout_ms": 5000
+  },
+  "sync_cloud": {
+    "description": "Synchronize state from the vendor cloud.",
+    "timeout_ms": 15000
+  }
+} as const;
+
+export const configSchema = {
+  "schema": {
+    "title": "Node Cloud Polling Api Runtime Setup",
+    "type": "object",
+    "required": [
+      "host"
+    ],
+    "properties": {
+      "host": {
+        "type": "string",
+        "title": "Host"
+      },
+      "alias": {
+        "type": "string",
+        "title": "Alias"
+      },
+      "base_url": {
+        "type": "string",
+        "title": "Base URL"
+      },
+      "api_key": {
+        "type": "string",
+        "title": "API Key"
+      },
+      "poll_interval_seconds": {
+        "type": "integer",
+        "title": "Poll Interval Seconds",
+        "minimum": 15
+      }
+    }
+  },
+  "uiSchema": {
+    "host": {
+      "placeholder": "192.168.1.50"
+    },
+    "alias": {
+      "placeholder": "Office Device"
+    },
+    "base_url": {
+      "placeholder": "https://api.vendor.example"
+    },
+    "api_key": {
+      "placeholder": "secret-token"
+    },
+    "poll_interval_seconds": {
+      "placeholder": "60"
+    }
+  }
+} as const;
+
+export const fallbackEntity = {
+  "id": "demo-device",
+  "name": "Demo Device",
+  "device_id": "demo-device",
+  "entity_type": "sensor",
+  "capabilities": [
+    "connected",
+    "temperature_c",
+    "refresh",
+    "api_rate_limit_remaining",
+    "api_latency_ms",
+    "sync_cloud"
+  ],
+  "available_commands": [
+    {
+      "id": "refresh",
+      "label": "Refresh",
+      "kind": "action"
+    },
+    {
+      "id": "sync_cloud",
+      "label": "Sync Cloud",
+      "kind": "action"
+    }
+  ],
+  "dashboard": {
+    "allowed_widgets": [
+      "tile",
+      "stat",
+      "button"
+    ],
+    "default_widget": "tile"
+  }
+} as const;

@@ -1,0 +1,126 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+)
+
+func main() {
+	raw, err := os.ReadFile("manifest.json")
+	if err != nil {
+		panic(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		panic(err)
+	}
+	behaviorPath := "src/behaviors.json"
+	if _, err := os.Stat(behaviorPath); err != nil {
+		behaviorPath = "behaviors.json"
+	}
+	behaviorRaw, err := os.ReadFile(behaviorPath)
+	if err != nil {
+		behaviorRaw = nil
+	}
+	var behavior map[string]any
+	if behaviorRaw != nil {
+		if err := json.Unmarshal(behaviorRaw, &behavior); err != nil {
+			panic(err)
+		}
+	}
+	errors := []string{}
+	if manifest["$schema"] != "./schema/piphi-manifest.schema.json" {
+		errors = append(errors, "manifest must reference ./schema/piphi-manifest.schema.json")
+	}
+	if _, err := os.Stat("schema/piphi-manifest.schema.json"); err != nil {
+		errors = append(errors, "schema/piphi-manifest.schema.json is missing")
+	}
+	api, _ := manifest["api"].(map[string]any)
+	endpoints, _ := api["endpoints"].(map[string]any)
+	requiredValues, _ := api["required"].([]any)
+	required := map[string]bool{}
+	for _, value := range requiredValues {
+		required[fmt.Sprint(value)] = true
+	}
+	for _, key := range []string{"health", "entities", "command", "config", "ui_config"} {
+		if !required[key] {
+			errors = append(errors, "api.required is missing "+key)
+		}
+		if endpoint, ok := endpoints[key].(string); !ok || !strings.HasPrefix(endpoint, "/") {
+			errors = append(errors, "api.endpoints."+key+" must be an absolute path")
+		}
+	}
+	capabilities, _ := manifest["capabilities"].(map[string]any)
+	commands, _ := manifest["commands"].(map[string]any)
+	for capabilityID, rawCapability := range capabilities {
+		capability, _ := rawCapability.(map[string]any)
+		if capability["kind"] == "action" {
+			if _, ok := commands[capabilityID]; !ok {
+			errors = append(errors, "action capability "+capabilityID+" must map to a command")
+		}
+	}
+	if behavior == nil {
+		errors = append(errors, "behaviors.json is missing")
+	} else {
+		if behavior["behaviorSchemaVersion"] != "integration.behaviors.v2" {
+			errors = append(errors, "behaviors.json must use behaviorSchemaVersion integration.behaviors.v2")
+		}
+		devices, _ := behavior["devices"].([]any)
+		templates, _ := behavior["templates"].([]any)
+		deviceIDs := map[string]bool{}
+		for deviceIndex, rawDevice := range devices {
+			device, _ := rawDevice.(map[string]any)
+			deviceID := fmt.Sprint(device["id"])
+			if deviceIDs[deviceID] {
+				errors = append(errors, fmt.Sprintf("behaviors.devices[%d].id duplicates another device id", deviceIndex))
+			}
+			if strings.TrimSpace(deviceID) != "" {
+				deviceIDs[deviceID] = true
+			}
+			actions, _ := device["actions"].([]any)
+			actionIDs := map[string]bool{}
+			for actionIndex, rawAction := range actions {
+				action, _ := rawAction.(map[string]any)
+				actionID := fmt.Sprint(action["id"])
+				if actionIDs[actionID] {
+					errors = append(errors, fmt.Sprintf("behaviors.devices[%d].actions[%d].id duplicates another action id", deviceIndex, actionIndex))
+				}
+				if strings.TrimSpace(actionID) != "" {
+					actionIDs[actionID] = true
+				}
+				runtime, _ := action["runtime"].(map[string]any)
+				safety, _ := action["safety"].(map[string]any)
+				if strings.TrimSpace(fmt.Sprint(runtime["command"])) == "" {
+					errors = append(errors, fmt.Sprintf("behaviors.devices[%d].actions[%d].runtime.command is required", deviceIndex, actionIndex))
+				}
+				riskLevel := strings.TrimSpace(fmt.Sprint(safety["riskLevel"]))
+				if riskLevel == "" {
+					riskLevel = strings.TrimSpace(fmt.Sprint(action["riskLevel"]))
+				}
+				if riskLevel == "" {
+					riskLevel = strings.TrimSpace(fmt.Sprint(runtime["riskLevel"]))
+				}
+				if riskLevel != "low" && riskLevel != "medium" && riskLevel != "high" && riskLevel != "critical" {
+					errors = append(errors, fmt.Sprintf("behaviors.devices[%d].actions[%d].safety.riskLevel must be low, medium, high, or critical", deviceIndex, actionIndex))
+				}
+			}
+		}
+		if len(devices) == 0 && len(templates) == 0 {
+			errors = append(errors, "behaviors.json must define at least one device or template")
+		}
+		for templateIndex, rawTemplate := range templates {
+			template, _ := rawTemplate.(map[string]any)
+			deviceKey := strings.TrimSpace(fmt.Sprint(template["deviceKey"]))
+			if deviceKey != "" && len(deviceIDs) > 0 && !deviceIDs[deviceKey] {
+				errors = append(errors, fmt.Sprintf("behaviors.templates[%d].deviceKey must reference a defined device", templateIndex))
+			}
+		}
+	}
+	}
+	if len(errors) > 0 {
+		panic(strings.Join(errors, "\n"))
+	}
+	fmt.Println("PiPhi scaffold validation passed.")
+}
