@@ -48,8 +48,8 @@ import {
 const VERSION = "0.1.0";
 const SCAFFOLD_VERSION = "0.2.0";
 const DEFAULT_PORT = 8090;
-const NODE_SDK_VERSION = "^0.2.0";
-const PYTHON_SDK_VERSION = ">=0.3.0,<1.0.0";
+const NODE_SDK_VERSION = "^0.3.0";
+const PYTHON_SDK_VERSION = ">=0.5.0,<1.0.0";
 
 const supportedLanguages = ["node", "python", "go"] as const;
 const supportedKinds = ["integration", "sidecar"] as const;
@@ -2542,6 +2542,7 @@ function queueTelemetry(entry: DeviceEntry): void {
     processState: runtime.processState,
     telemetryClient: telemetry,
     authContext: runtime.auth,
+    configId: entry.configId,
     deviceId: entry.deviceId,
     containerId: entry.containerId,
     metrics: {
@@ -3504,6 +3505,7 @@ async def telemetry_example(request: Request):
         process_state=runtime.process_state,
         telemetry_client=telemetry,
         auth_context=runtime.auth,
+        config_id=str(entry["config_id"]),
         device_id=str(entry["device_id"]),
         container_id=entry.get("container_id"),
         metrics={"connected": True, "temperature_c": 21.4},
@@ -3520,6 +3522,7 @@ async def telemetry_for_device(config_id: str, request: Request):
         process_state=runtime.process_state,
         telemetry_client=telemetry,
         auth_context=runtime.auth,
+        config_id=str(entry["config_id"]),
         device_id=str(entry["device_id"]),
         container_id=entry.get("container_id"),
         metrics={
@@ -4208,6 +4211,7 @@ func queueTelemetry(entry deviceEntry) {
 		telemetry,
 		runtime.Auth,
 		runtimekit.TelemetryPayload{
+			ConfigID:    entry.ConfigID,
 			DeviceID:    entry.DeviceID,
 			ContainerID: entry.ContainerID,
 			Metrics: map[string]any{
@@ -4583,6 +4587,7 @@ func handleTelemetryExample(w http.ResponseWriter, r *http.Request) {
 		telemetry,
 		runtime.Auth,
 		runtimekit.TelemetryPayload{
+			ConfigID:    entry.ConfigID,
 			DeviceID:    entry.DeviceID,
 			ContainerID: entry.ContainerID,
 			Metrics: map[string]any{
