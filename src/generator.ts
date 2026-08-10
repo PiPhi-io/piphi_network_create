@@ -49,7 +49,7 @@ const VERSION = "0.1.0";
 const SCAFFOLD_VERSION = "0.2.0";
 const DEFAULT_PORT = 8090;
 const NODE_SDK_VERSION = "^0.3.0";
-const PYTHON_SDK_VERSION = ">=0.5.0,<1.0.0";
+const PYTHON_SDK_VERSION = ">=0.6.0,<1.0.0";
 
 const supportedLanguages = ["node", "python", "go"] as const;
 const supportedKinds = ["integration", "sidecar"] as const;
