@@ -1,11 +1,12 @@
 {
-  "name": "piphi-network-create",
-  "version": "0.1.0",
-  "description": "Scaffold PiPhi Network integrations and sidecars in supported runtime SDK languages.",
+  "name": "@piphi-network/cli",
+  "version": "0.2.0",
+  "description": "Create, validate, test, and maintain PiPhi Network integrations and sidecars.",
   "type": "module",
   "bin": {
-    "piphi-network-create": "./dist/index.js",
-    "create-piphi-integration": "./dist/index.js"
+    "piphi": "dist/index.js",
+    "piphi-network-create": "dist/index.js",
+    "create-piphi-integration": "dist/index.js"
   },
   "files": [
     "dist",
@@ -35,12 +36,16 @@
   "engines": {
     "node": ">=18"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@types/node": "^22.15.3",
     "typescript": "^6.0.2"
   },
   "license": "MIT",
   "dependencies": {
+    "@piphi-network/integration-doctor": "^0.2.0",
     "ajv": "^8.20.0",
     "commander": "^13.1.0",
     "enquirer": "^2.4.1"

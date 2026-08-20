@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+import { existsSync } from "node:fs";
+import path from "node:path";
+
+import {
+  doctorHasFailures,
+  formatDoctorReport,
+  runDoctor,
+} from "@piphi-network/integration-doctor";
 import { Command } from "commander";
 
 import { runCreate } from "./generator.js";
@@ -26,7 +34,7 @@ import {
 } from "./project-tools.js";
 import { validateTemplatePack } from "./template-packs.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const subcommands = new Set([
   "create",
   "validate",
@@ -60,9 +68,15 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
 
   const program = new Command();
   program
-    .name("piphi-network-create")
+    .name("piphi")
     .description("Create, validate, and maintain PiPhi runtime integrations and sidecars.")
     .version(VERSION, "-v, --version", "print the CLI version");
+
+  // Creation is routed to the generator before Commander parses the command,
+  // but it must still be registered here so it appears in top-level help.
+  program
+    .command("create [name]")
+    .description("Create a new PiPhi integration or sidecar project.");
 
   program
     .command("validate")
@@ -123,12 +137,43 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
 
   program
     .command("doctor")
-    .description("Run broader health checks on a generated PiPhi runtime project.")
+    .description("Check a PiPhi project and optionally test its running HTTP contract.")
     .option("-C, --cwd <path>", "project directory", process.cwd())
-    .action(async (options: { cwd: string }) => {
+    .option("--url <url>", "running integration base URL")
+    .option("--manifest <path>", "manifest used by live checks")
+    .option("--output <format>", "live report format: text or json", "text")
+    .option("--mock-core-port <port>", "start a mock Core callback receiver", parseIntegerOption)
+    .option("--telemetry-trigger <path>", "runtime route that emits sample telemetry")
+    .option("--event-trigger <path>", "runtime route that emits a sample automation event")
+    .action(async (options: {
+      cwd: string;
+      url?: string;
+      manifest?: string;
+      output: string;
+      mockCorePort?: number;
+      telemetryTrigger?: string;
+      eventTrigger?: string;
+    }) => {
       const findings = await doctorProject({ cwd: options.cwd });
       printFindings(findings);
-      if (hasErrors(findings)) {
+
+      let liveFailed = false;
+      if (options.url) {
+        const defaultManifest = path.join(options.cwd, "manifest.json");
+        const manifestPath = options.manifest ?? (existsSync(defaultManifest) ? defaultManifest : undefined);
+        const results = await runDoctor({
+          baseUrl: options.url,
+          ...(manifestPath ? { manifestPath } : {}),
+          ...(options.mockCorePort ? { mockCorePort: options.mockCorePort } : {}),
+          ...(options.telemetryTrigger ? { telemetryTriggerPath: options.telemetryTrigger } : {}),
+          ...(options.eventTrigger ? { eventTriggerPath: options.eventTrigger } : {}),
+        });
+        console.log("");
+        console.log(formatDoctorReport(results, options.output === "json" ? "json" : "text"));
+        liveFailed = doctorHasFailures(results);
+      }
+
+      if (hasErrors(findings) || liveFailed) {
         process.exitCode = 1;
       }
     });

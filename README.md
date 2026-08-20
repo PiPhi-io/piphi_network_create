@@ -2,6 +2,15 @@
 
 TypeScript CLI for scaffolding PiPhi Network runtime integrations and sidecars.
 
+Install the unified PiPhi developer CLI:
+
+```bash
+npm install --global @piphi-network/cli
+piphi create my-integration --language python
+piphi validate -C ./my-integration
+piphi doctor -C ./my-integration --url http://127.0.0.1:8090
+```
+
 The generator supports the current PiPhi runtime SDK languages:
 
 - Node.js / TypeScript with `piphi-runtime-kit-node`
@@ -150,7 +159,8 @@ piphi-network-create validate -C ./my-runtime
 piphi-network-create validate -C ./my-runtime --fix
 piphi-network-create inspect -C ./my-runtime
 piphi-network-create publish-check -C ./my-runtime
-piphi-network-create doctor -C ./my-runtime
+piphi doctor -C ./my-runtime
+piphi doctor -C ./my-runtime --url http://127.0.0.1:8090
 piphi-network-create add-command refresh_devices -C ./my-runtime
 piphi-network-create add-capability humidity_percent --unit % -C ./my-runtime
 piphi-network-create add-route diagnostics /diagnostics -C ./my-runtime
@@ -167,6 +177,11 @@ piphi-network-create upgrade -C ./my-runtime
 `validate` uses the generated JSON Schema through `ajv` and the hand-written
 contract checks. `upgrade` applies the current scaffold metadata/schema
 migration, including `metadata.scaffold_version`.
+
+`doctor` always checks the project on disk. When `--url` is supplied it also
+runs the published PiPhi runtime conformance suite against the live process.
+Use `--mock-core-port`, `--telemetry-trigger`, and `--event-trigger` to verify
+outbound telemetry and automation-event delivery.
 
 `inspect` prints the scaffold language, preset, image, endpoints, capabilities,
 commands, config fields, generated file presence, and validation status.
