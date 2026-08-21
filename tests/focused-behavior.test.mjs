@@ -66,12 +66,6 @@ test("focused scaffold generation behavior", async (t) => {
     assert.match(readme, /pdm run pytest/);
   });
 
-  await t.test("go scaffold uses the expected module path", async (t) => {
-    const outDir = await scaffold(t, { name: "go-module-runtime", language: "go" });
-    const goMod = await readFile(path.join(outDir, "go.mod"), "utf8");
-    assert.match(goMod, /module github\.com\/piphi-network\/go-module-runtime/);
-  });
-
   await t.test("sidecar kind defaults to sidecar-worker and sidecar-service", async (t) => {
     const outDir = await scaffold(t, { language: "node", extra: ["--kind", "sidecar"] });
     const manifest = await readManifest(outDir);
@@ -96,6 +90,29 @@ test("focused scaffold generation behavior", async (t) => {
     assert.equal(behavior.devices[0].actions[0].failure.continueOnPartialFailure, true);
   });
 
+  await t.test("Node scaffolds durable automation command dispatch by default", async (t) => {
+    const outDir = await scaffold(t, { language: "node", preset: "actuator-device", domain: "actuator" });
+    const packageJson = await readJson(path.join(outDir, "package.json"));
+    const state = await readFile(path.join(outDir, "src", "state.ts"), "utf8");
+    const commands = await readFile(path.join(outDir, "src", "routes", "commands.ts"), "utf8");
+    assert.equal(packageJson.dependencies["piphi-runtime-kit-node"], "^0.4.0");
+    assert.match(state, /FileAutomationIdempotencyStore/);
+    assert.match(state, /PIPHI_AUTOMATION_LEDGER_DIR/);
+    assert.match(commands, /dispatchAutomationActionFromFastify/);
+  });
+
+  await t.test("Python scaffolds durable automation command dispatch by default", async (t) => {
+    const outDir = await scaffold(t, { language: "python", preset: "actuator-device", domain: "actuator" });
+    const packageName = "python_focused_runtime";
+    const pyproject = await readFile(path.join(outDir, "pyproject.toml"), "utf8");
+    const state = await readFile(path.join(outDir, "src", packageName, "state.py"), "utf8");
+    const commands = await readFile(path.join(outDir, "src", packageName, "routes", "commands.py"), "utf8");
+    assert.match(pyproject, /piphi-runtime-kit-python>=0\.7\.1,<1\.0\.0/);
+    assert.match(state, /SQLiteAutomationIdempotencyStore/);
+    assert.match(state, /PIPHI_AUTOMATION_LEDGER_PATH/);
+    assert.match(commands, /dispatch_automation_action_from_fastapi/);
+  });
+
   await t.test("actuator preset adds action capability and safety config", async (t) => {
     const outDir = await scaffold(t, { language: "node", preset: "actuator-device", domain: "actuator" });
     const manifest = await readManifest(outDir);
@@ -113,7 +130,7 @@ test("focused scaffold generation behavior", async (t) => {
   });
 
   await t.test("cloud polling preset adds API settings and sync command", async (t) => {
-    const outDir = await scaffold(t, { language: "go", preset: "cloud-polling-api", domain: "cloud-api" });
+    const outDir = await scaffold(t, { language: "node", preset: "cloud-polling-api", domain: "cloud-api" });
     const manifest = await readManifest(outDir);
     assert.equal(manifest.config.editable_fields.includes("base_url"), true);
     assert.equal(manifest.config.editable_fields.includes("api_key"), true);
@@ -159,16 +176,6 @@ test("focused scaffold generation behavior", async (t) => {
     assert.equal("esbuild" in packageJson.devDependencies, true);
     assert.equal("postject" in packageJson.devDependencies, true);
     assert.match(workflow, /build:binary/);
-  });
-
-  await t.test("go binary build can be generated during create", async (t) => {
-    const outDir = await scaffold(t, { language: "go", extra: ["--binary-build"] });
-    const buildScript = await readFile(path.join(outDir, "scripts", "build_binary.py"), "utf8");
-    const workflow = await readFile(path.join(outDir, ".github", "workflows", "build-binary.yml"), "utf8");
-    assert.match(buildScript, /go", "build", "-trimpath"/);
-    assert.match(buildScript, /go-focused-runtime/);
-    assert.match(workflow, /go test \.\/\.\.\./);
-    assert.match(workflow, /python scripts\/build_binary.py --clean/);
   });
 
   await t.test("dry-run previews without writing the target directory", async (t) => {
@@ -329,16 +336,6 @@ test("focused project maintenance behavior", async (t) => {
     assert.equal("esbuild" in packageJson.devDependencies, true);
   });
 
-  await t.test("binary-build command adds Go executable build files", async (t) => {
-    const outDir = await scaffold(t, { language: "go" });
-    await addBinaryBuild({ cwd: outDir });
-    const inspection = await inspectProject({ cwd: outDir });
-    const buildScript = await readFile(path.join(outDir, "scripts", "build_binary.py"), "utf8");
-    assert.equal(inspection.files.binaryBuildScript, true);
-    assert.equal(inspection.files.binaryBuildWorkflow, true);
-    assert.match(buildScript, /go", "build"/);
-  });
-
   await t.test("publish-check requires release workflow", async (t) => {
     const outDir = await scaffold(t, { language: "node" });
     await makeReleaseReady(outDir, "docker.io/piphi/release-required:1.0.0");
@@ -390,7 +387,7 @@ test("focused project maintenance behavior", async (t) => {
     await writeManifest(outDir, manifest);
     await upgradeProject({ cwd: outDir });
     const upgraded = await readManifest(outDir);
-    assert.equal(upgraded.metadata.scaffold_version, "0.2.0");
+    assert.equal(upgraded.metadata.scaffold_version, "0.3.0");
   });
 });
 
@@ -537,7 +534,7 @@ test("focused template pack behavior", async (t) => {
   await t.test("templatePackDefaults uses supported metadata", async () => {
     const defaults = templatePackDefaults({
       name: "defaults",
-      languages: ["node", "go"],
+      languages: ["node", "python"],
       kind: "sidecar",
       preset: "sidecar-worker",
       domain: "sidecar-service",
@@ -574,7 +571,7 @@ test("focused template pack behavior", async (t) => {
         name: "filtered",
         files: [
           { path: "docs/node.md", content: "Node", languages: ["node"] },
-          { path: "docs/go.md", content: "Go", languages: ["go"] },
+          { path: "docs/python.md", content: "Python", languages: ["python"] },
         ],
         directory: "/tmp/template",
       },

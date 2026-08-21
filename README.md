@@ -15,7 +15,6 @@ The generator supports the current PiPhi runtime SDK languages:
 
 - Node.js / TypeScript with `piphi-runtime-kit-node`
 - Python / FastAPI with `piphi-runtime-kit-python`
-- Go / `net/http` with `piphi-runtime-kit-go`
 
 ## Develop
 
@@ -39,9 +38,7 @@ UPDATE_SNAPSHOTS=1 npm test
 piphi-network-create <name> --language node
 piphi-network-create create <name> --language node
 piphi-network-create <name> --language python --kind sidecar
-piphi-network-create <name> --language go --out-dir ./integrations/my-go-runtime
 piphi-network-create <name> --language python --preset cloud-polling-api --domain cloud-api --github-actions
-piphi-network-create <name> --language go --release-workflow
 piphi-network-create <name> --language python --binary-build
 piphi-network-create <name> --template ./templates/vendor-cloud --set vendor=Kaiterra
 piphi-network-create <name> --language node --preset webhook-receiver --package-manager pnpm
@@ -56,7 +53,7 @@ container image.
 ## Options
 
 - `--name <name>`: project and integration name
-- `--language <node|python|go>`: runtime SDK language
+- `--language <node|python>`: runtime SDK language
 - `--kind <integration|sidecar>`: scaffold flavor
 - `--preset <preset>`: template preset such as `sensor-device`, `actuator-device`, `cloud-polling-api`, `webhook-receiver`, `protocol-bridge`, `sidecar-worker`, or `platform-service`
 - `--domain <sensor|actuator|bridge|cloud-api|local-device|sidecar-service>`: domain metadata
@@ -101,8 +98,7 @@ route modules under `routes/`.
 
 Node.js projects use the same professional shape with `app.ts`, `contract.ts`,
 `state.ts`, typed route modules under `src/routes/`, and a small `index.ts`
-entrypoint. Go projects use idiomatic small `package main` files such as
-`contract.go`, `state.go`, and `routes_*.go`.
+entrypoint.
 
 Presets are not just labels: they adjust generated config fields, `.env.example`,
 manifest capabilities, command metadata, entity metadata, examples, CI, and the
@@ -113,7 +109,6 @@ Every generated project can validate manifest/contract drift locally:
 
 - Node.js: `npm test` and `npm run validate`
 - Python: `pytest` and `python scripts/validate.py`
-- Go: `go test ./...` and `go run ./cmd/validate`
 
 The generated test suite includes `tests/fixtures/contract-conformance.json`,
 which drives runtime conformance tests for `/health`, `/ui-config`, `/contract`,
@@ -122,7 +117,7 @@ which drives runtime conformance tests for `/health`, `/ui-config`, `/contract`,
 ## Template Packs
 
 Local template packs let teams layer company or vendor-specific files on top of
-the built-in Node.js, Python, and Go scaffolds:
+the built-in Node.js and Python scaffolds:
 
 ```bash
 piphi-network-create template validate ./templates/vendor-cloud
@@ -200,6 +195,6 @@ Buildx, pushes version/latest tags, and creates a GitHub Release. Use
 GHCR; the workflow uses GitHub's built-in token.
 
 `binary-build` adds language-specific native executable build files and
-`.github/workflows/build-binary.yml`. Python uses PyInstaller, Node.js uses
-Node SEA with `esbuild` and `postject`, and Go uses `go build`. Generated
+`.github/workflows/build-binary.yml`. Python uses PyInstaller and Node.js uses
+Node SEA with `esbuild` and `postject`. Generated
 artifacts are written to `dist/binary/` with platform-aware names.

@@ -4,8 +4,6 @@ import path from "node:path";
 import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 import { renderReleaseGithubActions, renderReleaseGuide, renderReleaseScript } from "./templates/common.js";
 import {
-  renderGoBinaryBuildScript,
-  renderGoBinaryGithubActions,
   renderNodeBinaryBuildScript,
   renderNodeBinaryGithubActions,
   renderPythonBinaryBuildScript,
@@ -60,7 +58,7 @@ const defaultEndpoints: Record<string, string> = {
   command: "/command",
 };
 const manifestSchemaPath = "schema/piphi-manifest.schema.json";
-const currentScaffoldVersion = "0.2.0";
+const currentScaffoldVersion = "0.3.0";
 
 export async function validateProject(options: ProjectToolOptions = {}): Promise<Finding[]> {
   const cwd = path.resolve(options.cwd ?? process.cwd());
@@ -395,12 +393,6 @@ export async function addBinaryBuild(options: ProjectToolOptions = {}): Promise<
     await ensureGitignoreLines(cwd, ["build/", "dist/"]);
     return;
   }
-  if (buildOptions.language === "go") {
-    await writeDoc(cwd, "scripts/build_binary.py", renderGoBinaryBuildScript(buildOptions));
-    await writeDoc(cwd, ".github/workflows/build-binary.yml", renderGoBinaryGithubActions(buildOptions));
-    await ensureGitignoreLines(cwd, ["build/", "dist/"]);
-    return;
-  }
   await writeDoc(cwd, "scripts/binary_entry.py", renderPythonBinaryEntry(buildOptions));
   await writeDoc(cwd, "scripts/build_binary.py", renderPythonBinaryBuildScript(buildOptions));
   await writeDoc(cwd, ".github/workflows/build-binary.yml", renderPythonBinaryGithubActions(buildOptions));
@@ -728,10 +720,13 @@ function releaseOptionsFromManifest(cwd: string, manifest: JsonObject): Template
   const firstPort = asObject(ports[0]);
   const slug = String(manifest.id ?? path.basename(cwd));
   const language = detectLanguage(cwd);
+  if (language !== "node" && language !== "python") {
+    throw new Error("Only Node.js and Python PiPhi projects are supported.");
+  }
   return {
     slug,
     title: String(manifest.name ?? slug),
-    language: language === "python" || language === "go" ? language : "node",
+    language,
     kind: String(metadata.kind ?? "integration"),
     image: String(container.image ?? manifest.image ?? ""),
     port: Number.isInteger(firstPort.container) ? Number(firstPort.container) : 8090,
@@ -743,7 +738,7 @@ function releaseOptionsFromManifest(cwd: string, manifest: JsonObject): Template
   };
 }
 
-function releaseCommandSet(cwd: string, language: "node" | "python" | "go"): TemplateCommandSet {
+function releaseCommandSet(cwd: string, language: TemplateScaffoldOptions["language"]): TemplateCommandSet {
   if (language === "node") {
     const manager = nodePackageManager(cwd);
     const run = manager === "pnpm" ? "pnpm" : manager === "yarn" ? "yarn" : "npm run";
@@ -762,12 +757,7 @@ function releaseCommandSet(cwd: string, language: "node" | "python" | "go"): Tem
       validateCommand: "python scripts/validate.py",
     };
   }
-  return {
-    installCommand: "go mod tidy",
-    checkCommand: "go vet ./...",
-    testCommand: "go test ./...",
-    validateCommand: "go run ./cmd/validate",
-  };
+  throw new Error("Only Node.js and Python PiPhi projects are supported.");
 }
 
 function nodePackageManager(cwd: string): "npm" | "pnpm" | "yarn" {
@@ -809,7 +799,7 @@ function detectLanguage(cwd: string): string {
     return "python";
   }
   if (existsSync(path.join(cwd, "contract.go")) || existsSync(path.join(cwd, "go.mod"))) {
-    return "go";
+    return "unsupported-go";
   }
   return "unknown";
 }
