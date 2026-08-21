@@ -1,6 +1,6 @@
 {
   "name": "@piphi-network/cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Create, validate, test, and maintain PiPhi Network integrations and sidecars.",
   "type": "module",
   "bin": {

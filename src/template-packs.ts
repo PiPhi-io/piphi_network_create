@@ -42,7 +42,7 @@ export type RenderedTemplateFile = {
   contents: string;
 };
 
-const supportedLanguages = new Set(["node", "python", "go"]);
+const supportedLanguages = new Set(["node", "python"]);
 const supportedKinds = new Set(["integration", "sidecar"]);
 const supportedPresets = new Set([
   "minimal",
@@ -95,7 +95,7 @@ export async function validateTemplatePack(templatePath: string, cwd = process.c
 }
 
 export function templatePackDefaults(pack: TemplatePack | undefined): {
-  language?: "node" | "python" | "go";
+  language?: "node" | "python";
   kind?: "integration" | "sidecar";
   preset?: string;
   domain?: string;
@@ -105,7 +105,7 @@ export function templatePackDefaults(pack: TemplatePack | undefined): {
   }
   const firstLanguage = pack.languages?.find((language) => supportedLanguages.has(language));
   return {
-    language: firstLanguage as "node" | "python" | "go" | undefined,
+    language: firstLanguage as "node" | "python" | undefined,
     kind: pack.kind === "sidecar" ? "sidecar" : pack.kind === "integration" ? "integration" : undefined,
     preset: pack.preset,
     domain: pack.domain,

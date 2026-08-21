@@ -45,13 +45,13 @@ import {
   type TemplatePack,
 } from "./template-packs.js";
 
-const VERSION = "0.1.0";
-const SCAFFOLD_VERSION = "0.2.0";
+const VERSION = "0.3.0";
+const SCAFFOLD_VERSION = "0.3.0";
 const DEFAULT_PORT = 8090;
-const NODE_SDK_VERSION = "^0.3.0";
-const PYTHON_SDK_VERSION = ">=0.6.0,<1.0.0";
+const NODE_SDK_VERSION = "^0.4.0";
+const PYTHON_SDK_VERSION = ">=0.7.1,<1.0.0";
 
-const supportedLanguages = ["node", "python", "go"] as const;
+const supportedLanguages = ["node", "python"] as const;
 const supportedKinds = ["integration", "sidecar"] as const;
 const supportedPresets = [
   "minimal",
@@ -77,7 +77,9 @@ const supportedDomains = [
 const supportedNodePackageManagers = ["npm", "pnpm", "yarn"] as const;
 const supportedPythonManagers = ["pip", "uv", "pdm"] as const;
 
-type Language = (typeof supportedLanguages)[number];
+// Go remains readable as a legacy internal scaffold shape during the removal
+// window, but it is no longer accepted by the public CLI or template packs.
+type Language = (typeof supportedLanguages)[number] | "go";
 type ProjectKind = (typeof supportedKinds)[number];
 type ProjectPreset = (typeof supportedPresets)[number];
 type ProjectDomain = (typeof supportedDomains)[number];
@@ -147,7 +149,7 @@ function parseArgs(argv: string[]): CliOptions {
     .version(VERSION, "-v, --version", "print the CLI version")
     .argument("[project-name]", "project and integration name")
     .option("--name <name>", "project and integration name")
-    .option("-l, --language <language>", "runtime SDK language: node, python, or go", parseLanguage)
+    .option("-l, --language <language>", "runtime SDK language: node or python", parseLanguage)
     .option("-k, --kind <kind>", "scaffold flavor: integration or sidecar", parseKind)
     .option(
       "--preset <preset>",
@@ -179,7 +181,7 @@ function parseArgs(argv: string[]): CliOptions {
 Examples:
   $ piphi-network-create awair-element --language node
   $ piphi-network-create rtl433-bridge --language python --preset device --domain bridge
-  $ piphi-network-create matter-sidecar --language go --kind sidecar --preset sidecar --github-actions
+  $ piphi-network-create matter-sidecar --language node --kind sidecar --preset sidecar --github-actions
 `,
     );
 
@@ -409,11 +411,6 @@ async function promptForMissing(options: CliOptions): Promise<CliOptions> {
           name: "python",
           message: "Python / FastAPI",
           hint: "lifespan + routed package layout",
-        },
-        {
-          name: "go",
-          message: "Go / net/http",
-          hint: "small compiled runtime",
         },
       ],
     });
@@ -2189,11 +2186,14 @@ export type DeviceEntry = {
 
 function nodeStateSource(): string {
   return `import {
+  AutomationRegistry,
+  FileAutomationIdempotencyStore,
   buildLocalEventRecord,
   createRuntimeStarter,
   type RuntimeRegistry,
 } from "piphi-runtime-kit-node";
 
+import { commands } from "./contract.js";
 import { integrationId, integrationName, integrationVersion } from "./settings.js";
 import type { DeviceConfig, DeviceEntry, DeviceState } from "./types.js";
 
@@ -2211,6 +2211,11 @@ export const registry = starter.registry as unknown as RuntimeRegistry<
 >;
 export const telemetry = starter.telemetryClient;
 export const configSync = starter.configSync;
+export const automations = new AutomationRegistry({
+  idempotencyStore: new FileAutomationIdempotencyStore(
+    process.env.PIPHI_AUTOMATION_LEDGER_DIR ?? "./data/automation-actions",
+  ),
+});
 
 export function buildEntry(config: DeviceConfig): DeviceEntry {
   return {
@@ -2270,6 +2275,34 @@ export function appendRuntimeEvent(
       payload,
     }),
   );
+}
+
+for (const commandName of Object.keys(commands)) {
+  automations.action(commandName, {
+    label: commands[commandName as keyof typeof commands].description,
+  })((request) => {
+    const target = request.target && typeof request.target === "object"
+      ? request.target as Record<string, unknown>
+      : {};
+    const deviceId = String(request.deviceId ?? target.device_id ?? "demo-device");
+    const configId = String(request.configId ?? target.config_id ?? deviceId);
+    const entry = registry.get(configId) ?? { deviceId, configId };
+    const event = appendRuntimeEvent("runtime.command.received", entry, {
+      command: commandName,
+      device_id: deviceId,
+      entity_id: request.entityId ?? null,
+      args: request.args,
+      target,
+    });
+    return {
+      event,
+      command: commandName,
+      device_id: deviceId,
+      config_id: configId,
+      target,
+      params: request.args,
+    };
+  });
 }
 `;
 }
@@ -2582,10 +2615,10 @@ export function registerTelemetryRoutes(app: FastifyInstance): void {
 
 function nodeCommandRoutesSource(): string {
   return `import type { FastifyInstance } from "fastify";
-import { buildEventIngestResponse } from "piphi-runtime-kit-node";
+import { dispatchAutomationActionFromFastify } from "piphi-runtime-kit-node/adapters/fastify";
 
 import { commands } from "../contract.js";
-import { appendRuntimeEvent, registry } from "../state.js";
+import { automations } from "../state.js";
 
 export function registerCommandRoutes(app: FastifyInstance): void {
   app.post("/command", async (request, reply) => {
@@ -2613,7 +2646,6 @@ export function registerCommandRoutes(app: FastifyInstance): void {
     const target = body.target && typeof body.target === "object" ? body.target : {};
     const deviceId = String(body.device_id ?? target.device_id ?? "demo-device");
     const configId = String(body.config_id ?? target.config_id ?? deviceId);
-    const entry = registry.get(configId) ?? { deviceId, configId };
     const requestedCapabilities = [
       body.capability,
       ...(Array.isArray(body.capability_requirements) ? body.capability_requirements : []),
@@ -2626,23 +2658,18 @@ export function registerCommandRoutes(app: FastifyInstance): void {
         message: \`This runtime does not support capability \${unsupportedCapability}\`,
       });
     }
-    const event = appendRuntimeEvent("runtime.command.received", entry, {
+    const result = await dispatchAutomationActionFromFastify(automations, request, {
+      ...body,
       command: commandName,
-      device_id: deviceId,
-      entity_id: body.entity_id ?? null,
       args: body.params ?? body.args ?? {},
+      deviceId,
+      configId,
       target,
     });
-    return {
-      ...buildEventIngestResponse(event),
-      ok: true,
-      command: commandName,
-      contract_version: body.contract_version ?? null,
-      device_id: deviceId,
-      config_id: configId,
-      target,
-      params: body.params ?? body.args ?? {},
-    };
+    return reply.code(result.ok ? 200 : 422).send({
+      ...result.toJSON(),
+      ...(result.ok ? result.result : {}),
+    });
   });
 }
 `;
@@ -3048,11 +3075,14 @@ FALLBACK_ENTITY: dict[str, Any] = ${fallbackEntity}
 function pythonStateSource(options: ScaffoldOptions): string {
   return `from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import HTTPException
 
 from piphi_runtime_kit_python import (
+    AutomationRegistry,
+    SQLiteAutomationIdempotencyStore,
     build_local_event_record,
     build_runtime_identity,
     create_runtime_starter,
@@ -3071,6 +3101,11 @@ runtime = starter.runtime
 registry = starter.registry
 telemetry = starter.telemetry_client
 config_sync = starter.config_sync
+automations = AutomationRegistry(
+    idempotency_store=SQLiteAutomationIdempotencyStore(
+        os.getenv("PIPHI_AUTOMATION_LEDGER_PATH", "./data/automation-actions.sqlite3")
+    )
+)
 
 capabilities = CAPABILITIES
 commands = COMMANDS
@@ -3139,6 +3174,46 @@ async def remove_config(config_id: str) -> bool:
         {"host": entry.get("host"), "alias": entry.get("alias")},
     )
     return True
+
+
+def _register_automation_actions() -> None:
+    for command_name, command_definition in commands.items():
+        def handler(request, *, _command_name=command_name):
+            target = getattr(request, "target", None)
+            target = target if isinstance(target, dict) else {}
+            device_id = str(request.device_id or target.get("device_id") or "demo-device")
+            config_id = str(request.config_id or target.get("config_id") or device_id)
+            entry = registry.get(config_id) or {
+                "device_id": device_id,
+                "config_id": config_id,
+            }
+            event = append_runtime_event(
+                "runtime.command.received",
+                entry,
+                {
+                    "command": _command_name,
+                    "device_id": device_id,
+                    "entity_id": request.entity_id,
+                    "args": request.args,
+                    "target": target,
+                },
+            )
+            return {
+                "event": event,
+                "command": _command_name,
+                "device_id": device_id,
+                "config_id": config_id,
+                "target": target,
+                "params": request.args,
+            }
+
+        automations.action(
+            command_name,
+            label=str(command_definition.get("description") or command_name),
+        )(handler)
+
+
+_register_automation_actions()
 `;
 }
 
@@ -3540,16 +3615,16 @@ function pythonCommandRoutesSource(): string {
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
-from piphi_runtime_kit_python import build_event_ingest_response
+from fastapi import APIRouter, HTTPException, Request
+from piphi_runtime_kit_python.fastapi import dispatch_automation_action_from_fastapi
 
-from ..state import append_runtime_event, commands, registry
+from ..state import automations, commands
 
 router = APIRouter(tags=["commands"])
 
 
 @router.post("/command")
-async def command(payload: dict[str, Any]):
+async def command(payload: dict[str, Any], request: Request):
     command_name = str(payload.get("command") or payload.get("capability_id") or "").strip()
     if not command_name:
         raise HTTPException(status_code=400, detail="Missing command")
@@ -3582,33 +3657,22 @@ async def command(payload: dict[str, Any]):
                 "message": f"This runtime does not support capability {unsupported_capability}",
             },
         )
-    entry = registry.get(config_id) or {
-        "device_id": device_id,
-        "config_id": config_id,
-    }
-    event = append_runtime_event(
-        "runtime.command.received",
-        entry,
+    result = await dispatch_automation_action_from_fastapi(
+        automations,
+        request,
         {
+            **payload,
             "command": command_name,
-            "device_id": device_id,
-            "entity_id": payload.get("entity_id"),
             "args": payload.get("params") or payload.get("args") or {},
+            "device_id": device_id,
+            "config_id": config_id,
             "target": target,
         },
     )
-    response = build_event_ingest_response(event)
-    response_payload = response.model_dump() if hasattr(response, "model_dump") else dict(response)
-    return {
-        **response_payload,
-        "ok": True,
-        "command": command_name,
-        "contract_version": payload.get("contract_version"),
-        "device_id": device_id,
-        "config_id": config_id,
-        "target": target,
-        "params": payload.get("params") or payload.get("args") or {},
-    }
+    response = result.model_dump(mode="json")
+    if result.ok:
+        response.update(result.result)
+    return response
 `;
 }
 

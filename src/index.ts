@@ -34,7 +34,7 @@ import {
 } from "./project-tools.js";
 import { validateTemplatePack } from "./template-packs.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const subcommands = new Set([
   "create",
   "validate",

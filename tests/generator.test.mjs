@@ -22,7 +22,7 @@ import {
 import { validateTemplatePack } from "../dist/template-packs.js";
 import { assertMatchesSnapshot } from "./snapshot-helpers.mjs";
 
-const languages = ["node", "python", "go"];
+const languages = ["node", "python"];
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const presets = [
   "minimal",
@@ -72,10 +72,9 @@ test("generates every language and preset with a valid manifest contract", async
 
       const manifest = JSON.parse(await readFile(path.join(outDir, "manifest.json"), "utf8"));
       const commandExample = JSON.parse(await readFile(path.join(outDir, "examples", "command.json"), "utf8"));
-      const behaviorMetadataPath = language === "go" ? "behaviors.json" : "src/behaviors.json";
-      const behaviorMetadata = JSON.parse(await readFile(path.join(outDir, behaviorMetadataPath), "utf8"));
+      const behaviorMetadata = JSON.parse(await readFile(path.join(outDir, "src", "behaviors.json"), "utf8"));
       assert.equal(manifest.metadata.generator, "piphi-network-create");
-      assert.equal(manifest.metadata.scaffold_version, "0.2.0");
+      assert.equal(manifest.metadata.scaffold_version, "0.3.0");
       assert.equal(manifest.metadata.preset, preset);
       assert.equal(manifest.$schema, "./schema/piphi-manifest.schema.json");
       assert.equal(manifest.runtime.linux.container.ports[0].container, 9876);
@@ -124,11 +123,6 @@ test("generates every language and preset with a valid manifest contract", async
         assert.equal(existsSync(path.join(outDir, "src", packageDir, "contract.py")), true);
         assert.equal(existsSync(path.join(outDir, "tests", "test_contract.py")), true);
         assert.equal(existsSync(path.join(outDir, "tests", "test_conformance.py")), true);
-        assert.equal(existsSync(path.join(outDir, "tests", "fixtures", "contract-conformance.json")), true);
-      } else {
-        assert.equal(existsSync(path.join(outDir, "contract.go")), true);
-        assert.equal(existsSync(path.join(outDir, "contract_test.go")), true);
-        assert.equal(existsSync(path.join(outDir, "conformance_test.go")), true);
         assert.equal(existsSync(path.join(outDir, "tests", "fixtures", "contract-conformance.json")), true);
       }
 
@@ -283,12 +277,6 @@ test("representative generated files match golden snapshots", async (t) => {
       preset: "webhook-receiver",
       domain: "cloud-api",
       files: ["manifest.json", "src/python_webhook_receiver_runtime/contract.py", "tests/test_conformance.py", "scripts/validate.py"],
-    },
-    {
-      language: "go",
-      preset: "sidecar-worker",
-      domain: "sidecar-service",
-      files: ["manifest.json", "contract.go", "conformance_test.go", "cmd/validate/main.go"],
     },
   ];
 
