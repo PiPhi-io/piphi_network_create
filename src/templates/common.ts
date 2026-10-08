@@ -147,6 +147,11 @@ Return \`{"ok": true, ...}\` for accepted commands. For validation failures, ret
 - \`POST /telemetry/example\`
 
 Keep \`manifest.json\`, the contract source file, and route handlers in sync.
+
+Register one upstream reader with \`starter.state.provide(...)\` and publish
+normalized snapshots with \`starter.state.publish(...)\`. The Runtime Kit owns
+\`GET /state\`, refresh request IDs, receipts, timeouts, and unsupported refreshes.
+Never implement that protocol by hand or relabel cached state as refreshed.
 `;
 }
 
@@ -178,6 +183,11 @@ The runtime listens on port \`${options.port}\` by default and exposes the commo
 - \`POST /telemetry/example\`
 - \`POST /telemetry/device/{config_id}/example\`
 - \`POST /command\`
+
+For pull-capable integrations, register one real upstream reader with
+\`starter.state.provide(...)\`. For polling and webhook updates, call
+\`starter.state.publish(...)\`. Do not parse refresh query parameters or construct
+receipts in integration code; the Runtime Kit owns that protocol.
 
 ## Manifest
 

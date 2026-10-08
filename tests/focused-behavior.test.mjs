@@ -95,7 +95,7 @@ test("focused scaffold generation behavior", async (t) => {
     const packageJson = await readJson(path.join(outDir, "package.json"));
     const state = await readFile(path.join(outDir, "src", "state.ts"), "utf8");
     const commands = await readFile(path.join(outDir, "src", "routes", "commands.ts"), "utf8");
-    assert.equal(packageJson.dependencies["piphi-runtime-kit-node"], "^0.4.0");
+    assert.equal(packageJson.dependencies["piphi-runtime-kit-node"], "^0.5.0");
     assert.match(state, /FileAutomationIdempotencyStore/);
     assert.match(state, /PIPHI_AUTOMATION_LEDGER_DIR/);
     assert.match(commands, /dispatchAutomationActionFromFastify/);
@@ -107,7 +107,7 @@ test("focused scaffold generation behavior", async (t) => {
     const pyproject = await readFile(path.join(outDir, "pyproject.toml"), "utf8");
     const state = await readFile(path.join(outDir, "src", packageName, "state.py"), "utf8");
     const commands = await readFile(path.join(outDir, "src", packageName, "routes", "commands.py"), "utf8");
-    assert.match(pyproject, /piphi-runtime-kit-python>=0\.7\.1,<1\.0\.0/);
+    assert.match(pyproject, /piphi-runtime-kit-python>=0\.8\.0,<1\.0\.0/);
     assert.match(state, /SQLiteAutomationIdempotencyStore/);
     assert.match(state, /PIPHI_AUTOMATION_LEDGER_PATH/);
     assert.match(commands, /dispatch_automation_action_from_fastapi/);

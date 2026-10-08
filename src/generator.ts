@@ -48,8 +48,8 @@ import {
 const VERSION = "0.3.0";
 const SCAFFOLD_VERSION = "0.3.0";
 const DEFAULT_PORT = 8090;
-const NODE_SDK_VERSION = "^0.4.0";
-const PYTHON_SDK_VERSION = ">=0.7.1,<1.0.0";
+const NODE_SDK_VERSION = "^0.5.0";
+const PYTHON_SDK_VERSION = ">=0.8.0,<1.0.0";
 
 const supportedLanguages = ["node", "python"] as const;
 const supportedKinds = ["integration", "sidecar"] as const;
@@ -2190,25 +2190,24 @@ function nodeStateSource(): string {
   FileAutomationIdempotencyStore,
   buildLocalEventRecord,
   createRuntimeStarter,
-  type RuntimeRegistry,
 } from "piphi-runtime-kit-node";
 
 import { commands } from "./contract.js";
 import { integrationId, integrationName, integrationVersion } from "./settings.js";
 import type { DeviceConfig, DeviceEntry, DeviceState } from "./types.js";
 
-export const starter = createRuntimeStarter({
+export const starter = createRuntimeStarter<
+  DeviceState,
+  DeviceEntry,
+  Record<string, unknown>
+>({
   integrationId,
   integrationName,
   version: integrationVersion,
 });
 
 export const runtime = starter.runtime;
-export const registry = starter.registry as unknown as RuntimeRegistry<
-  DeviceState,
-  DeviceEntry,
-  Record<string, unknown>
->;
+export const registry = starter.registry;
 export const telemetry = starter.telemetryClient;
 export const configSync = starter.configSync;
 export const automations = new AutomationRegistry({
@@ -2232,7 +2231,7 @@ export function buildEntry(config: DeviceConfig): DeviceEntry {
 export async function applyConfig(config: DeviceConfig): Promise<void> {
   const entry = buildEntry(config);
   registry.set(config.id, entry);
-  registry.updateState(
+  starter.state.publish(
     config.id,
     {
       connected: true,
@@ -2458,17 +2457,25 @@ function nodeRuntimeRoutesSource(): string {
 
 import { endpoints, requiredEndpoints } from "../contract.js";
 import { integrationId, integrationName, integrationVersion, projectDomain, projectKind, projectPreset } from "../settings.js";
-import { registry } from "../state.js";
+import { registry, starter } from "../state.js";
 
 export function registerRuntimeRoutes(app: FastifyInstance): void {
-  app.get("/state", async () => {
+  app.get("/state", async (request) => {
+    const query = request.query as { refresh?: string | boolean; refresh_request_id?: string };
+    const refreshRequested = query.refresh === true || query.refresh === "true";
+    const stateOptions: { refresh: boolean; refreshRequestId?: string } = {
+      refresh: refreshRequested,
+    };
+    if (query.refresh_request_id) {
+      stateOptions.refreshRequestId = query.refresh_request_id;
+    }
+    const payload = await starter.state.response(stateOptions);
     return {
+      ...payload,
       summary: {
         activeConfigCount: registry.ids().length,
         recentEventCount: registry.recentEvents.length,
       },
-      entries: Object.fromEntries(registry.entries),
-      stateSnapshots: Object.fromEntries(registry.stateSnapshots),
     };
   });
 
@@ -2721,7 +2728,7 @@ type DeviceEntry = {
   latestState?: DeviceState;
 };
 
-const starter = createRuntimeStarter({
+const starter = createRuntimeStarter<DeviceState, DeviceEntry, Record<string, unknown>>({
   integrationId,
   integrationName,
   version: integrationVersion,
@@ -2759,7 +2766,7 @@ function buildEntry(config: DeviceConfig): DeviceEntry {
 async function applyConfig(config: DeviceConfig): Promise<void> {
   const entry = buildEntry(config);
   registry.set(config.id, entry);
-  registry.updateState(
+  starter.state.publish(
     config.id,
     {
       connected: true,
@@ -2887,14 +2894,22 @@ app.post("/deconfigure", async (request) => {
   });
 });
 
-app.get("/state", async () => {
+app.get("/state", async (request) => {
+  const query = request.query as { refresh?: string | boolean; refresh_request_id?: string };
+  const refreshRequested = query.refresh === true || query.refresh === "true";
+  const stateOptions: { refresh: boolean; refreshRequestId?: string } = {
+    refresh: refreshRequested,
+  };
+  if (query.refresh_request_id) {
+    stateOptions.refreshRequestId = query.refresh_request_id;
+  }
+  const payload = await starter.state.response(stateOptions);
   return {
+    ...payload,
     summary: {
       activeConfigCount: registry.ids().length,
       recentEventCount: registry.recentEvents.length,
     },
-    entries: Object.fromEntries(registry.entries),
-    stateSnapshots: Object.fromEntries(registry.stateSnapshots),
   };
 });
 
@@ -3147,7 +3162,7 @@ def get_entry_or_404(config_id: str) -> dict[str, Any]:
 async def apply_config(config: DeviceConfig) -> None:
     entry = make_entry(config)
     registry.set(config.id, entry)
-    registry.update_state(
+    starter.state.publish(
         config.id,
         {
             "connected": True,
@@ -3434,7 +3449,7 @@ function pythonRuntimeRoutesSource(): string {
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 
 from ..contract import ENDPOINTS, REQUIRED_ENDPOINTS
 from ..settings import (
@@ -3445,21 +3460,28 @@ from ..settings import (
     PROJECT_KIND,
     PROJECT_PRESET,
 )
-from ..state import registry
+from ..state import registry, starter
 
 router = APIRouter(tags=["runtime"])
 
 
 @router.get("/state")
-async def state() -> dict[str, Any]:
-    return {
-        "summary": {
+async def state(
+    refresh: bool = Query(default=False),
+    refresh_request_id: str | None = Query(default=None),
+) -> dict[str, Any]:
+    try:
+        payload = await starter.state.response(
+            refresh=refresh,
+            refresh_request_id=refresh_request_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    payload["summary"] = {
             "active_config_count": len(registry.ids()),
             "recent_event_count": len(registry.recent_events),
-        },
-        "entries": registry.entries,
-        "state_snapshots": registry.state_snapshots,
     }
+    return payload
 
 
 @router.get("/contract")
@@ -3849,7 +3871,7 @@ func buildEntry(config deviceConfig) deviceEntry {
 func applyConfig(config deviceConfig) deviceEntry {
 	entry := buildEntry(config)
 	registry.Set(config.ID, entry)
-	registry.UpdateState(config.ID, entry.LatestState, entry.DeviceID)
+	starter.State.Publish(config.ID, entry.LatestState, entry.DeviceID)
 	appendRuntimeEvent("runtime.config.applied", entry, map[string]any{
 		"host":  config.Host,
 		"alias": config.Alias,
@@ -4108,15 +4130,29 @@ func registerRuntimeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/contract", handleContract)
 }
 
-func handleState(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+func handleState(w http.ResponseWriter, r *http.Request) {
+	refreshRequested := r.URL.Query().Get("refresh") == "true"
+	stateResponse, err := starter.State.Response(
+		r.Context(),
+		refreshRequested,
+		r.URL.Query().Get("refresh_request_id"),
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+	payload := map[string]any{
 		"summary": map[string]any{
 			"active_config_count": len(registry.IDs()),
 			"recent_event_count":  len(registry.RecentEvents()),
 		},
-		"entries":         registry.EntriesSnapshot(),
+		"entries":         stateResponse.Entries,
 		"state_snapshots": registry.StateSnapshots(),
-	})
+	}
+	if stateResponse.Refresh != nil {
+		payload["refresh"] = stateResponse.Refresh
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func handleContract(w http.ResponseWriter, _ *http.Request) {
@@ -4524,7 +4560,7 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 	adapters.SyncRuntimeAuthFromRequest(runtime, r, payload.ContainerID)
 	entry := buildEntry(payload)
 	registry.Set(payload.ID, entry)
-	registry.UpdateState(payload.ID, entry.LatestState, entry.DeviceID)
+	starter.State.Publish(payload.ID, entry.LatestState, entry.DeviceID)
 	appendRuntimeEvent("runtime.config.applied", entry, map[string]any{
 		"host":  payload.Host,
 		"alias": payload.Alias,
@@ -4571,15 +4607,29 @@ func handleDeconfigure(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
-func handleState(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+func handleState(w http.ResponseWriter, r *http.Request) {
+	refreshRequested := r.URL.Query().Get("refresh") == "true"
+	stateResponse, err := starter.State.Response(
+		r.Context(),
+		refreshRequested,
+		r.URL.Query().Get("refresh_request_id"),
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+	payload := map[string]any{
 		"summary": map[string]any{
 			"active_config_count": len(registry.IDs()),
 			"recent_event_count":  len(registry.RecentEvents()),
 		},
-		"entries":         registry.EntriesSnapshot(),
+		"entries":         stateResponse.Entries,
 		"state_snapshots": registry.StateSnapshots(),
-	})
+	}
+	if stateResponse.Refresh != nil {
+		payload["refresh"] = stateResponse.Refresh
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func handleEntities(w http.ResponseWriter, _ *http.Request) {

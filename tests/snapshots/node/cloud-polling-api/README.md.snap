@@ -30,6 +30,11 @@ The runtime listens on port `9988` by default and exposes the common PiPhi runti
 - `POST /telemetry/device/{config_id}/example`
 - `POST /command`
 
+For pull-capable integrations, register one real upstream reader with
+`starter.state.provide(...)`. For polling and webhook updates, call
+`starter.state.publish(...)`. Do not parse refresh query parameters or construct
+receipts in integration code; the Runtime Kit owns that protocol.
+
 ## Manifest
 
 `manifest.json` is a starter manifest. Before publishing, update:
