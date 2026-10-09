@@ -1,6 +1,6 @@
 # piphi_network_create
 
-TypeScript CLI for scaffolding PiPhi Network runtime integrations and sidecars.
+TypeScript CLI for scaffolding PiPhi Network runtime integrations, sidecars, and Widget SDK packages.
 
 Install the unified PiPhi developer CLI:
 
@@ -9,6 +9,7 @@ npm install --global @piphi-network/cli
 piphi create my-integration --language python
 piphi validate -C ./my-integration
 piphi doctor -C ./my-integration --url http://127.0.0.1:8090
+piphi widget create "Room Climate" --publisher io.example --integration-id room-climate-local-api
 ```
 
 The generator supports the current PiPhi runtime SDK languages:
@@ -198,3 +199,33 @@ GHCR; the workflow uses GitHub's built-in token.
 `.github/workflows/build-binary.yml`. Python uses PyInstaller and Node.js uses
 Node SEA with `esbuild` and `postject`. Generated
 artifacts are written to `dist/binary/` with platform-aware names.
+
+## Widget projects
+
+The unified CLI treats repository layout and installation as separate concerns. A widget can live beside its integration or in an independent repository; the integration links it by registry identity rather than a Git URL.
+
+```bash
+piphi widget create "Awair Air Quality" \
+  --publisher io.piphi \
+  --integration-id awair-element-local-api
+
+cd awair-air-quality
+npm install
+npm test
+piphi widget dev
+piphi widget validate
+piphi widget link --integration ../com_piphi_awair_element
+piphi widget verify-link --integration ../com_piphi_awair_element
+piphi widget pack --check
+```
+
+`widget create` generates TypeScript source that imports `piphi-network-widget-sdk`, an esbuild browser bundle, tests, and a modern `package.source.json`. `widget link` updates `ui.experience_packages` idempotently and supports manifests at either `manifest.json` or `src/manifest.json`.
+
+`widget pack --check` creates and signs a disposable deterministic package with an ephemeral key. For a real artifact, provide the configured publisher key and choose an output directory:
+
+```bash
+PIPHI_WIDGET_SIGNING_KEY_PEM_BASE64=... \
+  piphi widget publish --output-dir dist
+```
+
+The CLI produces the signed ZIP and manifest but does not require a particular Git host or CI provider to upload them. Core installs those immutable registry artifacts; it never clones source repositories during installation.

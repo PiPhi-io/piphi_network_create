@@ -33,6 +33,15 @@ import {
   validateProject,
 } from "./project-tools.js";
 import { validateTemplatePack } from "./template-packs.js";
+import {
+  buildWidgetProject,
+  createWidgetProject,
+  devWidgetProject,
+  linkWidgetProject,
+  packWidgetProject,
+  validateWidgetProject,
+  verifyWidgetLink,
+} from "./widget-tools.js";
 
 const VERSION = "0.3.0";
 const subcommands = new Set([
@@ -53,6 +62,7 @@ const subcommands = new Set([
   "release-workflow",
   "binary-build",
   "upgrade",
+  "widget",
 ]);
 
 async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
@@ -133,6 +143,102 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
       if (hasErrors(findings)) {
         process.exitCode = 1;
       }
+    });
+
+  const widget = program
+    .command("widget")
+    .description("Create, link, validate, and package PiPhi Widget SDK projects.");
+
+  widget
+    .command("dev")
+    .description("Run the Widget SDK host simulator for a package widget.")
+    .option("-C, --cwd <path>", "widget project directory", process.cwd())
+    .option("--widget <id>", "widget id when the package contains more than one")
+    .option("--port <number>", "loopback server port", parseIntegerOption, 4179)
+    .action(async (options: { cwd: string; widget?: string; port: number }) => {
+      await devWidgetProject(options.cwd, { port: options.port, widgetId: options.widget });
+    });
+
+  widget
+    .command("create <name>")
+    .description("Create an independently releasable Widget SDK project.")
+    .option("-C, --cwd <path>", "parent directory", process.cwd())
+    .option("-o, --out-dir <path>", "output directory")
+    .option("--publisher <id>", "publisher id", "com.example")
+    .option("--integration-id <id>", "owning integration id")
+    .action(async (name: string, options: { cwd: string; outDir?: string; publisher: string; integrationId?: string }) => {
+      const target = await createWidgetProject(name, {
+        cwd: options.cwd,
+        outDir: options.outDir,
+        publisherId: options.publisher,
+        integrationId: options.integrationId,
+      });
+      console.log(`Created Widget SDK project at ${target}`);
+      console.log(`Next: cd ${path.relative(process.cwd(), target) || "."} && npm install && npm test`);
+    });
+
+  widget
+    .command("link")
+    .description("Link a widget package to an integration manifest without coupling repositories.")
+    .requiredOption("--integration <path>", "integration directory or manifest.json")
+    .option("-C, --cwd <path>", "widget project directory", process.cwd())
+    .option("--no-auto-install", "recommend the package without installing it automatically")
+    .action(async (options: { cwd: string; integration: string; autoInstall: boolean }) => {
+      const result = await linkWidgetProject(options.cwd, options.integration, options.autoInstall);
+      console.log(`Linked ${result.registryId} in ${result.manifestPath}`);
+    });
+
+  widget
+    .command("validate")
+    .description("Validate the modern package contract, assets, SDK source, and optional integration link.")
+    .option("-C, --cwd <path>", "widget project directory", process.cwd())
+    .option("--integration <path>", "also validate the linked integration")
+    .action(async (options: { cwd: string; integration?: string }) => {
+      const findings = await validateWidgetProject(options);
+      printWidgetFindings(findings);
+      if (findings.some((finding) => finding.level === "error")) process.exitCode = 1;
+    });
+
+  widget
+    .command("verify-link")
+    .description("Verify that a widget and integration declare the same package relationship.")
+    .requiredOption("--integration <path>", "integration directory or manifest.json")
+    .option("-C, --cwd <path>", "widget project directory", process.cwd())
+    .action(async (options: { cwd: string; integration: string }) => {
+      const findings = await verifyWidgetLink(options.cwd, options.integration);
+      printWidgetFindings(findings);
+      if (findings.some((finding) => finding.level === "error")) process.exitCode = 1;
+    });
+
+  widget
+    .command("pack")
+    .description("Build a deterministic signed widget-package archive and manifest.")
+    .option("-C, --cwd <path>", "widget project directory", process.cwd())
+    .option("--check", "use an ephemeral signing key and discard outputs")
+    .option("--output-dir <path>", "artifact output directory")
+    .option("--private-key-env <name>", "base64 PEM signing-key environment variable", "PIPHI_WIDGET_SIGNING_KEY_PEM_BASE64")
+    .option("--key-id <id>", "trusted publisher key id", "piphi-release-1")
+    .action(async (options: { cwd: string; check?: boolean; outputDir?: string; privateKeyEnv: string; keyId: string }) => {
+      await buildWidgetProject(options.cwd);
+      const result = await packWidgetProject(options.cwd, options);
+      console.log(`digest=${result.digest}`);
+      if (!options.check) {
+        console.log(`archive=${result.archivePath}`);
+        console.log(`manifest=${result.manifestPath}`);
+      }
+    });
+
+  widget
+    .command("publish")
+    .description("Produce signed release artifacts; uploading remains CI/provider controlled.")
+    .option("-C, --cwd <path>", "widget project directory", process.cwd())
+    .option("--output-dir <path>", "artifact output directory")
+    .option("--private-key-env <name>", "base64 PEM signing-key environment variable", "PIPHI_WIDGET_SIGNING_KEY_PEM_BASE64")
+    .option("--key-id <id>", "trusted publisher key id", "piphi-release-1")
+    .action(async (options: { cwd: string; outputDir?: string; privateKeyEnv: string; keyId: string }) => {
+      await buildWidgetProject(options.cwd);
+      const result = await packWidgetProject(options.cwd, { ...options, check: false });
+      console.log(`Signed release artifacts are ready.\narchive=${result.archivePath}\nmanifest=${result.manifestPath}\ndigest=${result.digest}`);
     });
 
   program
@@ -309,6 +415,12 @@ function shouldUseCreateCompatibility(argv: string[]): boolean {
     return false;
   }
   return !subcommands.has(first);
+}
+
+function printWidgetFindings(findings: Array<{ level: "error" | "warning" | "info"; message: string }>): void {
+  for (const finding of findings) {
+    console.log(`${finding.level === "error" ? "✗" : finding.level === "warning" ? "!" : "✓"} ${finding.message}`);
+  }
 }
 
 main().catch((error: unknown) => {
