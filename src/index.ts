@@ -43,7 +43,7 @@ import {
   verifyWidgetLink,
 } from "./widget-tools.js";
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 const subcommands = new Set([
   "create",
   "validate",
