@@ -1,7 +1,7 @@
 {
   "name": "@piphi-network/cli",
   "version": "0.3.0",
-  "description": "Create, validate, test, and maintain PiPhi Network integrations and sidecars.",
+  "description": "Create, validate, test, and maintain PiPhi integrations, sidecars, and widgets.",
   "type": "module",
   "bin": {
     "piphi": "dist/index.js",
@@ -31,7 +31,8 @@
     "integration",
     "runtime",
     "scaffold",
-    "sidecar"
+    "sidecar",
+    "widget"
   ],
   "engines": {
     "node": ">=18"
@@ -48,6 +49,8 @@
     "@piphi-network/integration-doctor": "^0.2.0",
     "ajv": "^8.20.0",
     "commander": "^13.1.0",
-    "enquirer": "^2.4.1"
+    "enquirer": "^2.4.1",
+    "fflate": "^0.8.2",
+    "piphi-network-widget-sdk": "0.6.1"
   }
 }
