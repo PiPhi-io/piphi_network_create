@@ -229,3 +229,5 @@ PIPHI_WIDGET_SIGNING_KEY_PEM_BASE64=... \
 ```
 
 The CLI produces the signed ZIP and manifest but does not require a particular Git host or CI provider to upload them. Core installs those immutable registry artifacts; it never clones source repositories during installation.
+
+CLI releases use npm trusted publishing from GitHub Actions. See [RELEASING.md](RELEASING.md) for the one-time npm package configuration and tag-based release procedure.
