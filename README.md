@@ -228,6 +228,29 @@ PIPHI_WIDGET_SIGNING_KEY_PEM_BASE64=... \
   piphi widget publish --output-dir dist
 ```
 
-The CLI produces the signed ZIP and manifest but does not require a particular Git host or CI provider to upload them. Core installs those immutable registry artifacts; it never clones source repositories during installation.
+`widget publish` now produces the signed ZIP and manifest, writes
+`dist/registry-proposal.json`, and requests a reviewed registry pull request.
+Use `--dry-run` to preview the package and proposal without signing or submitting,
+or `--no-registry` when intentionally publishing a private or direct-install
+package. Core installs immutable registry artifacts; it never clones source
+repositories during installation.
+
+## Registry proposals
+
+Integration and widget repositories use the same portable proposal contract:
+
+```bash
+piphi registry prepare -C .
+piphi registry verify dist/registry-proposal.json
+piphi registry submit dist/registry-proposal.json
+```
+
+`registry prepare` infers whether the project is an integration or widget,
+normalizes its immutable version tag and repository metadata, and starts new
+entries as draft with zero rollout. For a widget release, pass the signed
+manifest with `--artifact-manifest` so the proposal is bound to the archive's
+SHA-256 digest. `registry submit` dispatches the registry-owned proposal
+workflow, which validates the complete catalog and opens a review pull request;
+it never merges or promotes the listing automatically.
 
 CLI releases use npm trusted publishing from GitHub Actions. See [RELEASING.md](RELEASING.md) for the one-time npm package configuration and tag-based release procedure.

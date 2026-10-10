@@ -34,6 +34,12 @@ import {
 } from "./project-tools.js";
 import { validateTemplatePack } from "./template-packs.js";
 import {
+  prepareRegistryProposal,
+  readAndVerifyRegistryProposal,
+  submitRegistryProposal,
+  type RegistryKind,
+} from "./registry-tools.js";
+import {
   buildWidgetProject,
   createWidgetProject,
   devWidgetProject,
@@ -43,7 +49,7 @@ import {
   verifyWidgetLink,
 } from "./widget-tools.js";
 
-const VERSION = "0.3.1";
+const VERSION = "0.4.0";
 const subcommands = new Set([
   "create",
   "validate",
@@ -63,6 +69,7 @@ const subcommands = new Set([
   "binary-build",
   "upgrade",
   "widget",
+  "registry",
 ]);
 
 async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
@@ -230,15 +237,69 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
 
   widget
     .command("publish")
-    .description("Produce signed release artifacts; uploading remains CI/provider controlled.")
+    .description("Produce signed release artifacts and propose a reviewed registry update.")
     .option("-C, --cwd <path>", "widget project directory", process.cwd())
     .option("--output-dir <path>", "artifact output directory")
     .option("--private-key-env <name>", "base64 PEM signing-key environment variable", "PIPHI_WIDGET_SIGNING_KEY_PEM_BASE64")
     .option("--key-id <id>", "trusted publisher key id", "piphi-release-1")
-    .action(async (options: { cwd: string; outputDir?: string; privateKeyEnv: string; keyId: string }) => {
+    .option("--repo-url <url>", "canonical source repository URL; inferred from origin when omitted")
+    .option("--registry-repo <owner/repo>", "registry repository", "PiPhi-io/piphi-nework-registry")
+    .option("--no-registry", "publish artifacts without preparing or submitting a registry proposal")
+    .option("--dry-run", "validate, package with an ephemeral key, and preview the registry proposal")
+    .action(async (options: { cwd: string; outputDir?: string; privateKeyEnv: string; keyId: string; repoUrl?: string; registryRepo: string; registry: boolean; dryRun?: boolean }) => {
       await buildWidgetProject(options.cwd);
-      const result = await packWidgetProject(options.cwd, { ...options, check: false });
-      console.log(`Signed release artifacts are ready.\narchive=${result.archivePath}\nmanifest=${result.manifestPath}\ndigest=${result.digest}`);
+      const result = await packWidgetProject(options.cwd, { ...options, check: Boolean(options.dryRun) });
+      console.log(`${options.dryRun ? "Dry-run" : "Signed release"} artifacts are ready.\narchive=${result.archivePath}\nmanifest=${result.manifestPath}\ndigest=${result.digest}`);
+      if (options.registry) {
+        const prepared = await prepareRegistryProposal({
+          cwd: options.cwd,
+          kind: "widget",
+          repoUrl: options.repoUrl,
+          artifactManifest: options.dryRun ? undefined : path.relative(options.cwd, result.manifestPath),
+        });
+        console.log(`registry_proposal=${prepared.outputPath}`);
+        if (!options.dryRun) {
+          await submitRegistryProposal(prepared.outputPath, options.registryRepo);
+          console.log(`Registry review requested in ${options.registryRepo}.`);
+        }
+      }
+    });
+
+  const registry = program
+    .command("registry")
+    .description("Prepare, verify, and submit reviewed PiPhi registry proposals.");
+
+  registry
+    .command("prepare")
+    .description("Generate a draft registry proposal for an integration or widget.")
+    .option("-C, --cwd <path>", "integration or widget project directory", process.cwd())
+    .option("--kind <kind>", "project kind: integration or widget")
+    .option("--repo-url <url>", "canonical source repository URL; inferred from origin when omitted")
+    .option("--ref <ref>", "immutable release ref; defaults to v<version>")
+    .option("--artifact-manifest <path>", "signed widget manifest used to bind artifact integrity")
+    .option("--output <path>", "proposal output path", "dist/registry-proposal.json")
+    .action(async (options: { cwd: string; kind?: string; repoUrl?: string; ref?: string; artifactManifest?: string; output: string }) => {
+      const kind = parseRegistryKind(options.kind);
+      const result = await prepareRegistryProposal({ ...options, kind });
+      console.log(`Prepared ${result.proposal.registry_id} registry proposal.\nproposal=${result.outputPath}`);
+    });
+
+  registry
+    .command("verify <proposal>")
+    .description("Validate a generated registry proposal before submission.")
+    .action(async (proposal: string) => {
+      const findings = await readAndVerifyRegistryProposal(proposal);
+      printWidgetFindings(findings);
+      if (findings.some((finding) => finding.level === "error")) process.exitCode = 1;
+    });
+
+  registry
+    .command("submit <proposal>")
+    .description("Request a draft registry pull request through the registry workflow.")
+    .option("--registry-repo <owner/repo>", "registry repository", "PiPhi-io/piphi-nework-registry")
+    .action(async (proposal: string, options: { registryRepo: string }) => {
+      await submitRegistryProposal(proposal, options.registryRepo);
+      console.log(`Registry review requested in ${options.registryRepo}.`);
     });
 
   program
@@ -407,6 +468,12 @@ function parseIntegerOption(value: string): number {
     throw new Error(`Expected a positive integer, received "${value}".`);
   }
   return next;
+}
+
+function parseRegistryKind(value?: string): RegistryKind | undefined {
+  if (value === undefined) return undefined;
+  if (value === "integration" || value === "widget") return value;
+  throw new Error(`Expected registry kind integration or widget, received "${value}".`);
 }
 
 function shouldUseCreateCompatibility(argv: string[]): boolean {
