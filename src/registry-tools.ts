@@ -100,7 +100,7 @@ export async function submitRegistryProposal(file: string, registryRepo = "PiPhi
   const errors = verifyRegistryProposal(proposal).filter((finding) => finding.level === "error");
   if (errors.length) throw new Error(errors.map((finding) => finding.message).join("\n"));
   const args = [
-    "workflow", "run", "publish-registry-proposal.yml",
+    "workflow", "run", ".github/workflows/publish-registry-proposal.yml",
     "--repo", registryRepo,
     "--ref", "main",
     "-f", `registry_id=${proposal.registry_id}`,
