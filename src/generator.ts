@@ -45,7 +45,7 @@ import {
   type TemplatePack,
 } from "./template-packs.js";
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.1";
 const SCAFFOLD_VERSION = "0.3.0";
 const DEFAULT_PORT = 8090;
 const NODE_SDK_VERSION = "^0.5.0";
@@ -76,6 +76,7 @@ const supportedDomains = [
 ] as const;
 const supportedNodePackageManagers = ["npm", "pnpm", "yarn"] as const;
 const supportedPythonManagers = ["pip", "uv", "pdm"] as const;
+const supportedOnboardingModes = ["manual", "discovery", "account", "service", "none"] as const;
 
 // Go remains readable as a legacy internal scaffold shape during the removal
 // window, but it is no longer accepted by the public CLI or template packs.
@@ -85,6 +86,7 @@ type ProjectPreset = (typeof supportedPresets)[number];
 type ProjectDomain = (typeof supportedDomains)[number];
 type NodePackageManager = (typeof supportedNodePackageManagers)[number];
 type PythonManager = (typeof supportedPythonManagers)[number];
+type OnboardingMode = (typeof supportedOnboardingModes)[number];
 type JsonObject = Record<string, unknown>;
 
 type CliOptions = {
@@ -109,6 +111,7 @@ type CliOptions = {
   license?: string;
   maintainerName?: string;
   maintainerWebsite?: string;
+  onboardingMode?: OnboardingMode;
 };
 
 type ScaffoldOptions = {
@@ -130,6 +133,7 @@ type ScaffoldOptions = {
   license: string;
   maintainerName: string;
   maintainerWebsite: string;
+  onboardingMode: OnboardingMode;
   snakeName: string;
   pascalName: string;
   templatePack?: TemplatePack;
@@ -166,6 +170,7 @@ function parseArgs(argv: string[]): CliOptions {
     .option("--license <name>", "license name to place in generated metadata", "Apache-2.0")
     .option("--maintainer-name <name>", "maintainer name for generated manifest metadata")
     .option("--maintainer-website <url>", "maintainer website for generated manifest metadata")
+    .option("--onboarding <mode>", "first-use mode: manual, discovery, account, service, or none", parseOnboardingMode)
     .option("--dry-run", "preview generated files without writing them")
     .option("--print-tree", "print the generated file tree")
     .option("--github-actions", "generate a GitHub Actions workflow")
@@ -209,6 +214,7 @@ Examples:
     license?: string;
     maintainerName?: string;
     maintainerWebsite?: string;
+    onboarding?: OnboardingMode;
   }>();
   const projectName = program.args[0];
 
@@ -234,6 +240,7 @@ Examples:
     license: values.license,
     maintainerName: values.maintainerName,
     maintainerWebsite: values.maintainerWebsite,
+    onboardingMode: values.onboarding,
   };
 }
 
@@ -306,6 +313,15 @@ function parseDomain(value: string): ProjectDomain {
   );
 }
 
+function parseOnboardingMode(value: string): OnboardingMode {
+  if ((supportedOnboardingModes as readonly string[]).includes(value)) {
+    return value as OnboardingMode;
+  }
+  throw new InvalidArgumentError(
+    `Unsupported onboarding mode "${value}". Use one of: ${supportedOnboardingModes.join(", ")}`,
+  );
+}
+
 function parsePort(value: string): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -341,6 +357,7 @@ async function resolveOptions(parsed: CliOptions): Promise<ScaffoldOptions> {
   const targetDir = path.resolve(process.cwd(), prompted.outDir ?? slug);
   const maintainerName = prompted.maintainerName?.trim() || "PiPhi Network";
   const maintainerWebsite = prompted.maintainerWebsite?.trim() || "https://piphi.io";
+  const onboardingMode = prompted.onboardingMode ?? defaultOnboardingModeForPreset(preset);
 
   return {
     name,
@@ -361,6 +378,7 @@ async function resolveOptions(parsed: CliOptions): Promise<ScaffoldOptions> {
     license: prompted.license?.trim() || "Apache-2.0",
     maintainerName,
     maintainerWebsite,
+    onboardingMode,
     snakeName: toSnake(slug),
     pascalName: toPascal(slug),
     templatePack,
@@ -475,6 +493,25 @@ async function promptForMissing(options: CliOptions): Promise<CliOptions> {
       ],
     });
     next.domain = answer.domain;
+  }
+
+  if (!next.onboardingMode) {
+    const answer = await Enquirer.prompt<{ onboardingMode: OnboardingMode }>({
+      type: "select",
+      name: "onboardingMode",
+      message: "How should a homeowner begin setup?",
+      initial: supportedOnboardingModes.indexOf(
+        defaultOnboardingModeForPreset(next.preset ?? "minimal"),
+      ),
+      choices: [
+        { name: "manual", message: "Enter details", hint: "URL, IP address, credentials, or configuration form" },
+        { name: "discovery", message: "Find devices", hint: "actively scan for compatible devices" },
+        { name: "account", message: "Connect an account", hint: "authorize a vendor or cloud account" },
+        { name: "service", message: "Configure a service", hint: "infrastructure sidecar or managed helper" },
+        { name: "none", message: "No setup", hint: "ready immediately after installation" },
+      ],
+    });
+    next.onboardingMode = answer.onboardingMode;
   }
 
   if (!next.port) {
@@ -597,6 +634,16 @@ function defaultDomainForPreset(preset: ProjectPreset): ProjectDomain {
     return "sidecar-service";
   }
   return "sensor";
+}
+
+function defaultOnboardingModeForPreset(preset: ProjectPreset): OnboardingMode {
+  if (["cloud", "cloud-polling-api", "webhook-receiver"].includes(preset)) {
+    return "account";
+  }
+  if (["sidecar", "sidecar-worker", "platform-service"].includes(preset)) {
+    return "service";
+  }
+  return "manual";
 }
 
 function initialDomainIndex(preset: ProjectPreset | undefined): number {
@@ -1918,6 +1965,9 @@ function manifestJson(options: ScaffoldOptions): string {
     image: options.image,
     platforms: platformsFor(options),
     runtime: runtimeFor(options),
+    onboarding: {
+      mode: options.onboardingMode,
+    },
     api: {
       required: ["health", "entities", "command", "config", "ui_config"],
       endpoints: {

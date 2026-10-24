@@ -16,6 +16,7 @@ import {
   addWebhook,
   inspectProject,
   publishCheckProject,
+  setOnboardingMode,
   upgradeProject,
   validateProject,
 } from "../dist/project-tools.js";
@@ -37,6 +38,21 @@ const presets = [
   "sidecar-worker",
   "platform-service",
 ];
+
+test("set-onboarding preserves a legacy src manifest location", async () => {
+  const outDir = await mkdtemp(path.join(os.tmpdir(), "piphi-onboarding-src-manifest-"));
+  await mkdir(path.join(outDir, "src"), { recursive: true });
+  await writeFile(
+    path.join(outDir, "src", "manifest.json"),
+    JSON.stringify({ id: "legacy-sidecar", onboarding: { mode: "manual" } }, null, 2),
+  );
+
+  await setOnboardingMode("service", { cwd: outDir });
+
+  const manifest = JSON.parse(await readFile(path.join(outDir, "src", "manifest.json"), "utf8"));
+  assert.deepEqual(manifest.onboarding, { mode: "service" });
+  assert.equal(existsSync(path.join(outDir, "manifest.json")), false);
+});
 
 test("generates every language and preset with a valid manifest contract", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "piphi-create-test-"));
@@ -78,6 +94,12 @@ test("generates every language and preset with a valid manifest contract", async
       assert.equal(manifest.metadata.preset, preset);
       assert.equal(manifest.$schema, "./schema/piphi-manifest.schema.json");
       assert.equal(manifest.runtime.linux.container.ports[0].container, 9876);
+      const expectedOnboardingMode = ["cloud", "cloud-polling-api", "webhook-receiver"].includes(preset)
+        ? "account"
+        : ["sidecar", "sidecar-worker", "platform-service"].includes(preset)
+          ? "service"
+          : "manual";
+      assert.equal(manifest.onboarding.mode, expectedOnboardingMode);
       assert.deepEqual(manifest.api.required, ["health", "entities", "command", "config", "ui_config"]);
       assert.equal(commandExample.contract_version, "automation.runtime.command.v1");
       assert.equal(commandExample.target.config_id, "demo-device");
@@ -163,6 +185,7 @@ test("project tools add professional add-ons and upgrade metadata", async (t) =>
 
   assert.equal(manifest.api.endpoints.webhook, "/webhooks/:source");
   assert.equal(manifest.runtime.linux.discovery.method, "mdns");
+  assert.equal(manifest.onboarding.mode, "account");
   assert.equal(manifest.runtime.linux.container.environment.POLL_INTERVAL_SECONDS, "45");
   assert.equal(manifest.metadata.auth_strategy, "oauth2");
   assert.equal("battery_percent" in manifest.capabilities, true);
@@ -176,6 +199,10 @@ test("project tools add professional add-ons and upgrade metadata", async (t) =>
   assert.match(releaseWorkflow, /docker\/build-push-action@v6/);
   assert.match(releaseWorkflow, /softprops\/action-gh-release@v2/);
   assert.equal(upgradeFindings.some((finding) => finding.level === "info"), true);
+
+  await setOnboardingMode("none", { cwd: outDir });
+  const noSetupManifest = JSON.parse(await readFile(path.join(outDir, "manifest.json"), "utf8"));
+  assert.equal(noSetupManifest.onboarding.mode, "none");
 
   const inspection = await inspectProject({ cwd: outDir });
   assert.equal(inspection.language, "node");
@@ -200,6 +227,36 @@ test("project tools add professional add-ons and upgrade metadata", async (t) =>
     [],
     "publish-check should pass after release metadata is customized",
   );
+});
+
+test("legacy projects receive a safe onboarding migration", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "piphi-create-onboarding-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const outDir = path.join(root, "legacy-runtime");
+  await runCreate([
+    "legacy-runtime",
+    "--language",
+    "node",
+    "--preset",
+    "sensor-device",
+    "--out-dir",
+    outDir,
+    "--force",
+  ]);
+
+  const manifestPath = path.join(outDir, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  delete manifest.onboarding;
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const validation = await validateProject({ cwd: outDir });
+  assert.equal(validation.some((finding) => finding.message.includes("onboarding.mode is missing")), true);
+  const publish = await publishCheckProject({ cwd: outDir });
+  assert.equal(publish.some((finding) => finding.message === "onboarding.mode is required before publishing."), true);
+
+  await upgradeProject({ cwd: outDir });
+  const upgraded = JSON.parse(await readFile(manifestPath, "utf8"));
+  assert.equal(upgraded.onboarding.mode, "manual");
 });
 
 test("local template packs can add rendered files and defaults", async (t) => {

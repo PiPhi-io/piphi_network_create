@@ -7,6 +7,7 @@ export type TemplateScaffoldOptions = {
   port: number;
   preset: string;
   domain: string;
+  onboardingMode: "manual" | "discovery" | "account" | "service" | "none";
   snakeName: string;
   packageManager: "npm" | "pnpm" | "yarn";
   pythonManager: "pip" | "uv" | "pdm";

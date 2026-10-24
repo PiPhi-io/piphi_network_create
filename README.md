@@ -164,6 +164,7 @@ piphi-network-create add-webhook -C ./my-runtime
 piphi-network-create add-poller --interval 60 -C ./my-runtime
 piphi-network-create add-auth oauth2 -C ./my-runtime
 piphi-network-create add-discovery mdns -C ./my-runtime
+piphi set-onboarding manual -C ./my-runtime
 piphi-network-create add-telemetry temperature_c humidity_percent battery_percent -C ./my-runtime
 piphi-network-create release-workflow -C ./my-runtime
 piphi-network-create binary-build -C ./my-runtime
@@ -173,6 +174,12 @@ piphi-network-create upgrade -C ./my-runtime
 `validate` uses the generated JSON Schema through `ajv` and the hand-written
 contract checks. `upgrade` applies the current scaffold metadata/schema
 migration, including `metadata.scaffold_version`.
+
+Every newly generated runtime also declares its homeowner-facing setup entry
+point in `onboarding.mode`. Use `--onboarding` while creating a project or
+`piphi set-onboarding <mode> -C <project>` for an existing project. Runtime
+discovery metadata remains independent: a package may implement `/discover`
+while using `manual` onboarding.
 
 `doctor` always checks the project on disk. When `--url` is supplied it also
 runs the published PiPhi runtime conformance suite against the live process.
