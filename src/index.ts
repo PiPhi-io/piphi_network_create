@@ -22,6 +22,7 @@ import {
   addRoute,
   addTelemetry,
   addWebhook,
+  setOnboardingMode,
   doctorProject,
   fixProject,
   hasErrors,
@@ -64,6 +65,7 @@ const subcommands = new Set([
   "add-poller",
   "add-auth",
   "add-discovery",
+  "set-onboarding",
   "add-telemetry",
   "release-workflow",
   "binary-build",
@@ -420,6 +422,16 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
     .action(async (strategy: string, options: { cwd: string }) => {
       await addDiscovery(strategy, { cwd: options.cwd });
       console.log(`Set discovery strategy to '${strategy}'.`);
+    });
+
+  program
+    .command("set-onboarding")
+    .description("Set the homeowner-facing first-use mode.")
+    .argument("<mode>", "manual, discovery, account, service, or none")
+    .option("-C, --cwd <path>", "project directory", process.cwd())
+    .action(async (mode: string, options: { cwd: string }) => {
+      await setOnboardingMode(mode, { cwd: options.cwd });
+      console.log(`Set onboarding mode to '${mode}'.`);
     });
 
   program

@@ -45,6 +45,9 @@
       }
     }
   },
+  "onboarding": {
+    "mode": "account"
+  },
   "api": {
     "required": [
       "health",

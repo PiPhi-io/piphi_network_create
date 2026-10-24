@@ -2,7 +2,12 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
-import { renderReleaseGithubActions, renderReleaseGuide, renderReleaseScript } from "./templates/common.js";
+import {
+  renderManifestSchemaJson,
+  renderReleaseGithubActions,
+  renderReleaseGuide,
+  renderReleaseScript,
+} from "./templates/common.js";
 import {
   renderNodeBinaryBuildScript,
   renderNodeBinaryGithubActions,
@@ -31,6 +36,7 @@ type ProjectInspection = {
   version: string;
   preset: string;
   domain: string;
+  onboardingMode: string;
   scaffoldVersion: string;
   image: string;
   port: number | null;
@@ -59,6 +65,8 @@ const defaultEndpoints: Record<string, string> = {
 };
 const manifestSchemaPath = "schema/piphi-manifest.schema.json";
 const currentScaffoldVersion = "0.3.0";
+const onboardingModes = ["manual", "discovery", "account", "service", "none"] as const;
+type OnboardingMode = (typeof onboardingModes)[number];
 
 export async function validateProject(options: ProjectToolOptions = {}): Promise<Finding[]> {
   const cwd = path.resolve(options.cwd ?? process.cwd());
@@ -71,6 +79,8 @@ export async function validateProject(options: ProjectToolOptions = {}): Promise
   const api = asObject(manifest.api);
   const endpoints = asObject(api.endpoints);
   const required = Array.isArray(api.required) ? api.required.map(String) : [];
+  const onboarding = asObject(manifest.onboarding);
+  const onboardingMode = onboarding.mode;
 
   if (manifest.$schema !== `./${manifestSchemaPath}`) {
     findings.push({
@@ -82,6 +92,17 @@ export async function validateProject(options: ProjectToolOptions = {}): Promise
     findings.push({ level: "warning", message: `${manifestSchemaPath} is missing.` });
   }
   findings.push(...(await validateManifestSchema(cwd, manifest)));
+  if (onboardingMode === undefined) {
+    findings.push({
+      level: "warning",
+      message: "onboarding.mode is missing; run piphi upgrade or set it explicitly before publishing.",
+    });
+  } else if (!onboardingModes.includes(onboardingMode as OnboardingMode)) {
+    findings.push({
+      level: "error",
+      message: `onboarding.mode must be one of: ${onboardingModes.join(", ")}.`,
+    });
+  }
   const metadata = asObject(manifest.metadata);
   if (metadata.scaffold_version !== currentScaffoldVersion) {
     findings.push({
@@ -193,6 +214,13 @@ export async function fixProject(options: ProjectToolOptions = {}): Promise<Find
     findings.push({ level: "info", message: `Set metadata.scaffold_version to ${currentScaffoldVersion}.` });
   }
 
+  const onboarding = ensureObject(manifest, "onboarding");
+  if (!onboardingModes.includes(onboarding.mode as OnboardingMode)) {
+    onboarding.mode = inferOnboardingMode(manifest);
+    changed = true;
+    findings.push({ level: "info", message: `Set onboarding.mode to ${onboarding.mode}.` });
+  }
+
   const capabilities = ensureObject(manifest, "capabilities");
   const commands = ensureObject(manifest, "commands");
   for (const [capabilityId, capability] of Object.entries(capabilities)) {
@@ -284,6 +312,7 @@ export async function inspectProject(options: ProjectToolOptions = {}): Promise<
     version: String(manifest.version ?? ""),
     preset: String(metadata.preset ?? ""),
     domain: String(metadata.domain ?? ""),
+    onboardingMode: String(asObject(manifest.onboarding).mode ?? "legacy"),
     scaffoldVersion: String(metadata.scaffold_version ?? ""),
     image: String(container.image ?? manifest.image ?? ""),
     port: Number.isInteger(firstPort.container) ? Number(firstPort.container) : null,
@@ -344,6 +373,13 @@ export async function publishCheckProject(options: ProjectToolOptions = {}): Pro
   }
   if (!metadata.scaffold_version) {
     findings.push({ level: "error", message: "metadata.scaffold_version is required." });
+  }
+  const onboardingMode = asObject(manifest.onboarding).mode;
+  if (!onboardingModes.includes(onboardingMode as OnboardingMode)) {
+    findings.push({
+      level: "error",
+      message: "onboarding.mode is required before publishing.",
+    });
   }
 
   if (!hasErrors(findings)) {
@@ -488,6 +524,10 @@ export async function addAuth(
   }
   const metadata = ensureObject(manifest, "metadata");
   metadata.auth_strategy = strategy;
+  const onboarding = ensureObject(manifest, "onboarding");
+  if (onboarding.mode !== "service") {
+    onboarding.mode = "account";
+  }
   await writeManifest(cwd, manifest);
   await writeDoc(cwd, "docs/addons/auth.md", addonDoc("Authentication", [`Strategy: ${strategy}`]));
 }
@@ -501,8 +541,28 @@ export async function addDiscovery(
   const runtime = ensureObject(ensureObject(manifest, "runtime"), "linux");
   const discovery = ensureObject(runtime, "discovery");
   discovery.method = strategy;
+  const onboarding = ensureObject(manifest, "onboarding");
+  if (
+    !["passive", "proxy", "manual"].includes(strategy.trim().toLowerCase())
+    && !["account", "service"].includes(String(onboarding.mode ?? ""))
+  ) {
+    onboarding.mode = "discovery";
+  }
   await writeManifest(cwd, manifest);
   await writeDoc(cwd, "docs/addons/discovery.md", addonDoc("Discovery", [`Method: ${strategy}`]));
+}
+
+export async function setOnboardingMode(
+  mode: string,
+  options: ProjectToolOptions = {},
+): Promise<void> {
+  if (!onboardingModes.includes(mode as OnboardingMode)) {
+    throw new Error(`Unsupported onboarding mode "${mode}". Use one of: ${onboardingModes.join(", ")}`);
+  }
+  const cwd = path.resolve(options.cwd ?? process.cwd());
+  const manifest = await requireManifest(cwd);
+  ensureObject(manifest, "onboarding").mode = mode;
+  await writeManifest(cwd, manifest);
 }
 
 export async function addTelemetry(
@@ -536,6 +596,7 @@ export function printInspection(inspection: ProjectInspection): void {
   console.log(`Version: ${inspection.version || "unknown"}`);
   console.log(`Preset: ${inspection.preset || "unknown"}`);
   console.log(`Domain: ${inspection.domain || "unknown"}`);
+  console.log(`Onboarding: ${inspection.onboardingMode || "legacy"}`);
   console.log(`Scaffold: ${inspection.scaffoldVersion || "unknown"}`);
   console.log(`Image: ${inspection.image || "unset"}`);
   console.log(`Port: ${inspection.port ?? "unset"}`);
@@ -732,6 +793,7 @@ function releaseOptionsFromManifest(cwd: string, manifest: JsonObject): Template
     port: Number.isInteger(firstPort.container) ? Number(firstPort.container) : 8090,
     preset: String(metadata.preset ?? "minimal"),
     domain: String(metadata.domain ?? "sensor"),
+    onboardingMode: normalizedOnboardingMode(manifest),
     snakeName: slug.replace(/-/g, "_"),
     packageManager: nodePackageManager(cwd),
     pythonManager: "pip",
@@ -826,29 +888,33 @@ ${lines.map((line) => `- ${line}`).join("\n")}
 }
 
 function manifestSchemaJson(): string {
-  return `${JSON.stringify(
-    {
-      $schema: "https://json-schema.org/draft/2020-12/schema",
-      $id: "https://piphi.io/schemas/piphi-manifest.schema.json",
-      title: "PiPhi Runtime Manifest",
-      type: "object",
-      required: ["manifest_version", "id", "name", "version", "runtime", "api", "capabilities"],
-      properties: {
-        $schema: { type: "string" },
-        manifest_version: { type: "string" },
-        id: { type: "string", minLength: 1 },
-        name: { type: "string", minLength: 1 },
-        version: { type: "string", minLength: 1 },
-        runtime: { type: "object" },
-        api: { type: "object" },
-        capabilities: { type: "object" },
-        commands: { type: "object" },
-        entities: { type: "array" },
-      },
-    },
-    null,
-    2,
-  )}\n`;
+  return renderManifestSchemaJson();
+}
+
+function normalizedOnboardingMode(manifest: JsonObject): OnboardingMode {
+  const mode = asObject(manifest.onboarding).mode;
+  return onboardingModes.includes(mode as OnboardingMode)
+    ? mode as OnboardingMode
+    : inferOnboardingMode(manifest);
+}
+
+function inferOnboardingMode(manifest: JsonObject): OnboardingMode {
+  const metadata = asObject(manifest.metadata);
+  const preset = String(metadata.preset ?? "");
+  if (["sidecar", "sidecar-worker", "platform-service"].includes(preset)
+    || manifest.kind === "platform_service") {
+    return "service";
+  }
+  if (metadata.auth_strategy || ["cloud", "cloud-polling-api", "webhook-receiver"].includes(preset)) {
+    return "account";
+  }
+  const runtime = asObject(manifest.runtime);
+  const discovery = asObject(asObject(runtime.linux).discovery);
+  const discoveryMethod = String(discovery.method ?? "").toLowerCase();
+  if (discoveryMethod && !["passive", "proxy", "manual"].includes(discoveryMethod)) {
+    return "discovery";
+  }
+  return "manual";
 }
 
 function existsAny(cwd: string, patterns: string[]): boolean {

@@ -43,6 +43,7 @@ receipts in integration code; the Runtime Kit owns that protocol.
 - `version`
 - capabilities and commands
 - config fields and identity fields
+- onboarding mode
 - entity metadata
 
 ## Docker
