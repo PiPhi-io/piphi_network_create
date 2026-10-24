@@ -621,9 +621,9 @@ function printInspectionList(label: string, values: string[]): void {
 }
 
 async function readManifest(cwd: string, findings: Finding[]): Promise<JsonObject | null> {
-  const manifestPath = path.join(cwd, "manifest.json");
-  if (!existsSync(manifestPath)) {
-    findings.push({ level: "error", message: "manifest.json is missing." });
+  const manifestPath = resolveManifestPath(cwd);
+  if (!manifestPath) {
+    findings.push({ level: "error", message: "manifest.json is missing (checked project root and src/)." });
     return null;
   }
   try {
@@ -638,15 +638,26 @@ async function readManifest(cwd: string, findings: Finding[]): Promise<JsonObjec
 }
 
 async function requireManifest(cwd: string): Promise<JsonObject> {
-  const manifestPath = path.join(cwd, "manifest.json");
-  if (!existsSync(manifestPath)) {
-    throw new Error(`manifest.json is missing in ${cwd}`);
+  const manifestPath = resolveManifestPath(cwd);
+  if (!manifestPath) {
+    throw new Error(`manifest.json is missing in ${cwd} (checked project root and src/)`);
   }
   return JSON.parse(await readFile(manifestPath, "utf8")) as JsonObject;
 }
 
 async function writeManifest(cwd: string, manifest: JsonObject): Promise<void> {
-  await writeFile(path.join(cwd, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  const manifestPath = resolveManifestPath(cwd);
+  if (!manifestPath) {
+    throw new Error(`manifest.json is missing in ${cwd} (checked project root and src/)`);
+  }
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+function resolveManifestPath(cwd: string): string | null {
+  for (const candidate of [path.join(cwd, "manifest.json"), path.join(cwd, "src", "manifest.json")]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 async function validateManifestSchema(cwd: string, manifest: JsonObject): Promise<Finding[]> {

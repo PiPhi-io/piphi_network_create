@@ -39,6 +39,21 @@ const presets = [
   "platform-service",
 ];
 
+test("set-onboarding preserves a legacy src manifest location", async () => {
+  const outDir = await mkdtemp(path.join(os.tmpdir(), "piphi-onboarding-src-manifest-"));
+  await mkdir(path.join(outDir, "src"), { recursive: true });
+  await writeFile(
+    path.join(outDir, "src", "manifest.json"),
+    JSON.stringify({ id: "legacy-sidecar", onboarding: { mode: "manual" } }, null, 2),
+  );
+
+  await setOnboardingMode("service", { cwd: outDir });
+
+  const manifest = JSON.parse(await readFile(path.join(outDir, "src", "manifest.json"), "utf8"));
+  assert.deepEqual(manifest.onboarding, { mode: "service" });
+  assert.equal(existsSync(path.join(outDir, "manifest.json")), false);
+});
+
 test("generates every language and preset with a valid manifest contract", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "piphi-create-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
