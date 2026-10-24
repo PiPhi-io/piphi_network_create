@@ -2,6 +2,8 @@
 
 TypeScript CLI for scaffolding PiPhi Network runtime integrations, sidecars, and Widget SDK packages.
 
+Generated runtimes use managed-runtime contract v1: the manifest declares the preferred container port, Core allocates the host listener, and the process reads the assignment from `PORT`. Generated widget packages explicitly declare that listener ports are not applicable.
+
 Install the unified PiPhi developer CLI:
 
 ```bash

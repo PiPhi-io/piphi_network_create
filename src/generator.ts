@@ -46,7 +46,7 @@ import {
 } from "./template-packs.js";
 
 const VERSION = "0.4.1";
-const SCAFFOLD_VERSION = "0.3.0";
+const SCAFFOLD_VERSION = "0.4.0";
 const DEFAULT_PORT = 8090;
 const NODE_SDK_VERSION = "^0.5.0";
 const PYTHON_SDK_VERSION = ">=0.8.0,<1.0.0";
@@ -1069,7 +1069,7 @@ COPY pyproject.toml ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 EXPOSE ${options.port}
-CMD ["uvicorn", "${options.snakeName}.main:app", "--host", "0.0.0.0", "--port", "${options.port}"]
+CMD ["python", "-m", "${options.snakeName}.main"]
 `,
     },
     {
@@ -1968,6 +1968,11 @@ function manifestJson(options: ScaffoldOptions): string {
     onboarding: {
       mode: options.onboardingMode,
     },
+    runtime_contract: {
+      version: 1,
+      port_binding: "core_allocated",
+      port_env: "PORT",
+    },
     api: {
       required: ["health", "entities", "command", "config", "ui_config"],
       endpoints: {
@@ -2049,7 +2054,6 @@ function runtimeFor(options: ScaffoldOptions): JsonObject {
       ports: [
         {
           container: options.port,
-          host: options.port,
         },
       ],
       environment: {
@@ -2166,8 +2170,14 @@ export const projectDomain = "${options.domain}";
 export const defaultPort = ${options.port};
 
 export function runtimePort(): number {
-  const value = Number(process.env.PORT ?? defaultPort);
-  return Number.isInteger(value) && value > 0 && value <= 65535 ? value : defaultPort;
+  const raw = process.env.PORT;
+  if (raw === undefined) return defaultPort;
+  if (!/^\\d+$/.test(raw)) throw new RangeError("PORT must be an integer between 1 and 65535.");
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new RangeError("PORT must be an integer between 1 and 65535.");
+  }
+  return value;
 }
 `;
 }
@@ -3078,11 +3088,16 @@ DEFAULT_PORT = ${options.port}
 
 
 def runtime_port() -> int:
-    raw_port = os.getenv("PORT", str(DEFAULT_PORT))
-    try:
-        return int(raw_port)
-    except ValueError:
+    raw_port = os.getenv("PORT")
+    if raw_port is None:
         return DEFAULT_PORT
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise ValueError("PORT must be an integer between 1 and 65535") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("PORT must be an integer between 1 and 65535")
+    return port
 `;
 }
 
@@ -3799,7 +3814,7 @@ func runtimePort() string {
 	}
 	port, err := strconv.Atoi(value)
 	if err != nil || port < 1 || port > 65535 {
-		return defaultPort
+		panic("PORT must be an integer between 1 and 65535")
 	}
 	return value
 }

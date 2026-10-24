@@ -90,7 +90,9 @@ test("generates every language and preset with a valid manifest contract", async
       const commandExample = JSON.parse(await readFile(path.join(outDir, "examples", "command.json"), "utf8"));
       const behaviorMetadata = JSON.parse(await readFile(path.join(outDir, "src", "behaviors.json"), "utf8"));
       assert.equal(manifest.metadata.generator, "piphi-network-create");
-      assert.equal(manifest.metadata.scaffold_version, "0.3.0");
+      assert.equal(manifest.metadata.scaffold_version, "0.4.0");
+      assert.deepEqual(manifest.runtime_contract, { version: 1, port_binding: "core_allocated", port_env: "PORT" });
+      assert.equal(manifest.runtime.linux.container.ports[0].host, undefined);
       assert.equal(manifest.metadata.preset, preset);
       assert.equal(manifest.$schema, "./schema/piphi-manifest.schema.json");
       assert.equal(manifest.runtime.linux.container.ports[0].container, 9876);
