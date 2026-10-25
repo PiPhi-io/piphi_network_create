@@ -45,7 +45,7 @@ import {
   type TemplatePack,
 } from "./template-packs.js";
 
-const VERSION = "0.4.1";
+const VERSION = "0.5.0";
 const SCAFFOLD_VERSION = "0.4.0";
 const DEFAULT_PORT = 8090;
 const NODE_SDK_VERSION = "^0.5.0";
