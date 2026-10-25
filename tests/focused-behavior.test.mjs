@@ -387,7 +387,8 @@ test("focused project maintenance behavior", async (t) => {
     await writeManifest(outDir, manifest);
     await upgradeProject({ cwd: outDir });
     const upgraded = await readManifest(outDir);
-    assert.equal(upgraded.metadata.scaffold_version, "0.3.0");
+    assert.equal(upgraded.metadata.scaffold_version, "0.4.0");
+    assert.deepEqual(upgraded.runtime_contract, { version: 1, port_binding: "core_allocated", port_env: "PORT" });
   });
 });
 

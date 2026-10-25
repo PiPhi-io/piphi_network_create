@@ -54,6 +54,7 @@ export async function createWidgetProject(name: string, options: CreateWidgetOpt
 
   const packageSource: JsonObject = {
     schema_version: "1",
+    runtime_contract: { version: 1, port_binding: "not_applicable" },
     identity: { publisher_id: publisherId, package_id: slug, version: "0.1.0" },
     name,
     description: `${name} dashboard widget.`,
@@ -139,6 +140,10 @@ export async function validateWidgetProject(options: ValidateWidgetOptions = {})
     return [{ level: "error", message: error instanceof Error ? error.message : String(error) }];
   }
   const identity = object(source.identity);
+  const runtimeContract = object(source.runtime_contract);
+  if (runtimeContract.version !== 1 || runtimeContract.port_binding !== "not_applicable") {
+    findings.push({ level: "error", message: "runtime_contract must declare version=1 and port_binding=not_applicable for widget packages." });
+  }
   for (const field of ["publisher_id", "package_id", "version"] as const) {
     if (!string(identity[field])) findings.push({ level: "error", message: `identity.${field} is required.` });
   }

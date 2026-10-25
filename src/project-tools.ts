@@ -64,7 +64,7 @@ const defaultEndpoints: Record<string, string> = {
   command: "/command",
 };
 const manifestSchemaPath = "schema/piphi-manifest.schema.json";
-const currentScaffoldVersion = "0.3.0";
+const currentScaffoldVersion = "0.4.0";
 const onboardingModes = ["manual", "discovery", "account", "service", "none"] as const;
 type OnboardingMode = (typeof onboardingModes)[number];
 
@@ -81,6 +81,7 @@ export async function validateProject(options: ProjectToolOptions = {}): Promise
   const required = Array.isArray(api.required) ? api.required.map(String) : [];
   const onboarding = asObject(manifest.onboarding);
   const onboardingMode = onboarding.mode;
+  const runtimeContract = asObject(manifest.runtime_contract);
 
   if (manifest.$schema !== `./${manifestSchemaPath}`) {
     findings.push({
@@ -101,6 +102,16 @@ export async function validateProject(options: ProjectToolOptions = {}): Promise
     findings.push({
       level: "error",
       message: `onboarding.mode must be one of: ${onboardingModes.join(", ")}.`,
+    });
+  }
+  if (
+    runtimeContract.version !== 1
+    || runtimeContract.port_binding !== "core_allocated"
+    || runtimeContract.port_env !== "PORT"
+  ) {
+    findings.push({
+      level: "error",
+      message: "runtime_contract must declare version=1, port_binding=core_allocated, and port_env=PORT.",
     });
   }
   const metadata = asObject(manifest.metadata);
@@ -219,6 +230,30 @@ export async function fixProject(options: ProjectToolOptions = {}): Promise<Find
     onboarding.mode = inferOnboardingMode(manifest);
     changed = true;
     findings.push({ level: "info", message: `Set onboarding.mode to ${onboarding.mode}.` });
+  }
+
+  const runtimeContract = ensureObject(manifest, "runtime_contract");
+  if (
+    runtimeContract.version !== 1
+    || runtimeContract.port_binding !== "core_allocated"
+    || runtimeContract.port_env !== "PORT"
+  ) {
+    runtimeContract.version = 1;
+    runtimeContract.port_binding = "core_allocated";
+    runtimeContract.port_env = "PORT";
+    changed = true;
+    findings.push({ level: "info", message: "Set the managed runtime port contract to v1." });
+  }
+
+  const linuxContainer = ensureObject(ensureObject(ensureObject(manifest, "runtime"), "linux"), "container");
+  const runtimePorts = Array.isArray(linuxContainer.ports) ? linuxContainer.ports : [];
+  for (const rawPort of runtimePorts) {
+    const runtimePort = asObject(rawPort);
+    if ("host" in runtimePort) {
+      delete runtimePort.host;
+      changed = true;
+      findings.push({ level: "info", message: "Removed fixed runtime host port; Core allocates it at install time." });
+    }
   }
 
   const capabilities = ensureObject(manifest, "capabilities");
