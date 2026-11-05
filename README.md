@@ -209,6 +209,164 @@ GHCR; the workflow uses GitHub's built-in token.
 Node SEA with `esbuild` and `postject`. Generated
 artifacts are written to `dist/binary/` with platform-aware names.
 
+## Native Managed Workload bundles
+
+`binary-build` remains compatible and only creates the executable. The separate
+`piphi native` workflow packages that output for Chief, signs it on the target
+host, generates an SPDX SBOM and in-toto provenance, and emits a
+`piphi.native-artifact-set.v1` manifest.
+
+Create an authoring file from a generated project:
+
+```bash
+piphi native init \
+  --binary dist/binary/my-runtime \
+  --identity release@example.com \
+  --artifact-base-url https://github.com/example/my-runtime/releases/download/v1.2.3
+```
+
+Review `native-bundle.json` before packaging. Important fields include:
+
+```json
+{
+  "contract": "piphi.native-bundle-authoring.v1",
+  "package_id": "my-runtime",
+  "package_version": "1.2.3",
+  "binary": "dist/binary/my-runtime",
+  "target": {
+    "platform": "linux",
+    "architecture": "amd64",
+    "minimum_os_version": "22.04"
+  },
+  "bundle": {
+    "entrypoint": "bin/my-runtime",
+    "args": [],
+    "environment": {},
+    "working_directory": ".",
+    "endpoint": {
+      "port": 8090,
+      "allowed_path_prefixes": ["/health", "/command"],
+      "allowed_methods": ["GET", "POST"]
+    }
+  },
+  "signing": {
+    "kind": "sigstore",
+    "identity": "https://github.com/example/my-runtime/.github/workflows/release.yml@refs/tags/v1.2.3",
+    "sigstore_issuer": "https://token.actions.githubusercontent.com"
+  },
+  "artifact_base_url": "https://github.com/example/my-runtime/releases/download/v1.2.3"
+}
+```
+
+Package each target on that target's native OS and CPU architecture:
+
+```bash
+piphi native package --config native-bundle.json --source-revision "$GIT_SHA"
+```
+
+Cross-packaging is intentionally rejected. Required tools and credentials are:
+
+- Every target: `syft` on `PATH` for SPDX JSON generation.
+- Linux: `cosign`, with an identity and trusted OIDC issuer. GitHub Actions
+  keyless signing requires `permissions: id-token: write`.
+- Windows: Windows SDK `signtool` and an Authenticode certificate installed in
+  the runner's certificate store. `signing.identity` is the certificate subject
+  selected by `signtool /n`; `timestamp_url` is optional.
+- macOS: `codesign`, `xcrun notarytool`, and `spctl`, a Developer ID certificate
+  in the runner keychain, and `signing.apple_notary_profile` created with
+  `xcrun notarytool store-credentials`.
+
+The command fails closed if a tool, credential, signature check, SBOM, or
+attestation is missing. It produces a deterministic ZIP, an SPDX document,
+in-toto provenance, a Sigstore bundle on Linux, and a one-target artifact-set
+manifest under `dist/native/`.
+
+Merge native-runner outputs only when package ID, version, source revision, and
+runtime contract all match. Duplicate targets are rejected and artifacts are
+sorted so input order does not affect the merged manifest:
+
+```bash
+piphi native merge dist/native/*.native-artifact-set.json \
+  --output dist/native/my-runtime-1.2.3.native-artifact-set.json
+piphi native validate dist/native/my-runtime-1.2.3.native-artifact-set.json
+piphi native conformance dist/native/my-runtime-1.2.3.native-artifact-set.json \
+  --output dist/native/native-conformance.json
+piphi native publish dist/native/my-runtime-1.2.3.native-artifact-set.json \
+  --tag v1.2.3 --repo example/my-runtime
+```
+
+Keep all referenced release files in the manifest directory, or pass
+`--artifact-dir`. `native conformance` reports portable schema, digest, SBOM,
+provenance, and bundle-layout checks. It always labels native qualification as
+`not_qualified`: Windows Authenticode and Job Object behavior, macOS Developer
+ID/notarization behavior, and each platform's Chief lifecycle and whole-tree
+cleanup must be tested on real native hosts.
+
+Artifact metadata containing `signature.verified: true` is not a trust grant.
+Chief independently verifies signatures and applies its local
+`PIPHI_NATIVE_TRUST_POLICY`; an absent or non-matching trust policy rejects
+admission.
+
+### GitHub Actions outline
+
+Keep one authoring file per matrix target (for example,
+`native-bundle.linux-amd64.json`) and provision each runner's signing tools and
+credentials before packaging:
+
+```yaml
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  native:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            config: native-bundle.linux-amd64.json
+          - runner: windows-2022
+            config: native-bundle.windows-amd64.json
+          - runner: macos-14
+            config: native-bundle.macos-arm64.json
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm install --global @piphi-network/cli
+      - run: npm run build:binary
+      # Install syft/cosign or import the platform signing credentials here.
+      - run: piphi native package --config "${{ matrix.config }}" --source-revision "${{ github.sha }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.runner }}
+          path: dist/native/*
+
+  aggregate:
+    needs: native
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm install --global @piphi-network/cli
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: dist/native
+          merge-multiple: true
+      - run: piphi native merge dist/native/*.native-artifact-set.json --output dist/native/release.native-artifact-set.json
+      - run: piphi native conformance dist/native/release.native-artifact-set.json --output dist/native/native-conformance.json
+      - run: piphi native publish dist/native/release.native-artifact-set.json --tag "${GITHUB_REF_NAME}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+```
+
 ## Widget projects
 
 The unified CLI treats repository layout and installation as separate concerns. A widget can live beside its integration or in an independent repository; the integration links it by registry identity rather than a Git URL.

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -34,6 +35,15 @@ import {
   validateProject,
 } from "./project-tools.js";
 import { validateTemplatePack } from "./template-packs.js";
+import {
+  buildNativeConformanceReport,
+  formatNativeConformanceReport,
+  initializeNativeBundleConfig,
+  mergeNativeArtifactSets,
+  packageNativeBundle,
+  publishNativeArtifactSet,
+  validateNativeArtifactSet,
+} from "./native-bundles.js";
 import {
   prepareRegistryProposal,
   readAndVerifyRegistryProposal,
@@ -72,6 +82,7 @@ const subcommands = new Set([
   "upgrade",
   "widget",
   "registry",
+  "native",
 ]);
 
 async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
@@ -90,6 +101,120 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
     .name("piphi")
     .description("Create, validate, and maintain PiPhi runtime integrations and sidecars.")
     .version(VERSION, "-v, --version", "print the CLI version");
+
+  const native = program
+    .command("native")
+    .description("Author, sign, validate, and publish Chief-managed native runtime bundles.");
+
+  native
+    .command("init")
+    .description("Create native-bundle.json from a generated PiPhi project.")
+    .requiredOption("--binary <path>", "native executable produced by binary-build")
+    .requiredOption("--identity <identity>", "trusted signing identity")
+    .requiredOption("--artifact-base-url <url>", "HTTPS publication base URL")
+    .option("-C, --cwd <path>", "project directory", process.cwd())
+    .option("--platform <platform>", "linux, windows, or macos", parseNativePlatform)
+    .option("--architecture <architecture>", "amd64 or arm64", parseNativeArchitecture)
+    .option("--force", "replace an existing native-bundle.json")
+    .action(async (options: {
+      cwd: string;
+      binary: string;
+      identity: string;
+      artifactBaseUrl: string;
+      platform?: "linux" | "windows" | "macos";
+      architecture?: "amd64" | "arm64";
+      force?: boolean;
+    }) => {
+      const output = await initializeNativeBundleConfig(options);
+      console.log(`Created ${output}`);
+    });
+
+  native
+    .command("package")
+    .description("Build, sign, attest, and validate one target-native bundle.")
+    .option("-C, --cwd <path>", "project directory", process.cwd())
+    .option("--config <path>", "authoring config", "native-bundle.json")
+    .option("--output-dir <path>", "artifact output directory", "dist/native")
+    .option("--source-revision <revision>", "40-64 character source revision")
+    .action(async (options: {
+      cwd: string;
+      config: string;
+      outputDir: string;
+      sourceRevision?: string;
+    }) => {
+      const output = await packageNativeBundle(options);
+      console.log(`Created ${output.manifestPath}`);
+    });
+
+  native
+    .command("validate <manifest>")
+    .description("Validate an artifact set and all referenced local release files.")
+    .option("--artifact-dir <path>", "directory containing the release files")
+    .action(async (manifest: string, options: { artifactDir?: string }) => {
+      const result = await validateNativeArtifactSet({
+        manifestPath: manifest,
+        artifactDir: options.artifactDir,
+      });
+      if (result.valid) {
+        console.log("Native artifact set is valid.");
+      } else {
+        for (const error of result.errors) console.error(`ERROR: ${error}`);
+        process.exitCode = 1;
+      }
+    });
+
+  native
+    .command("merge")
+    .description("Deterministically merge target-native artifact sets for one release.")
+    .argument("<manifests...>", "two or more target-native artifact-set manifests")
+    .requiredOption("-o, --output <path>", "merged artifact-set manifest")
+    .action(async (manifests: string[], options: { output: string }) => {
+      const output = await mergeNativeArtifactSets({
+        manifestPaths: manifests,
+        outputPath: options.output,
+      });
+      console.log(`Created ${output}`);
+    });
+
+  native
+    .command("conformance <manifest>")
+    .description("Report portable checks without claiming native-host qualification.")
+    .option("--artifact-dir <path>", "directory containing the release files")
+    .option("-o, --output <path>", "write the JSON report to a file")
+    .option("--json", "print the JSON report to stdout")
+    .action(async (
+      manifest: string,
+      options: { artifactDir?: string; output?: string; json?: boolean },
+    ) => {
+      const report = await buildNativeConformanceReport({
+        manifestPath: manifest,
+        artifactDir: options.artifactDir,
+      });
+      const json = `${JSON.stringify(report, null, 2)}\n`;
+      if (options.output) await writeFile(options.output, json, "utf8");
+      else if (options.json) process.stdout.write(json);
+      else process.stdout.write(formatNativeConformanceReport(report));
+      if (report.portable.status === "failed") process.exitCode = 1;
+    });
+
+  native
+    .command("publish <manifest>")
+    .description("Validate and upload a complete native artifact set to a GitHub release.")
+    .requiredOption("--tag <tag>", "existing GitHub release tag")
+    .option("--repo <owner/repository>", "GitHub repository; defaults to the current repository")
+    .option("--artifact-dir <path>", "directory containing the release files")
+    .action(async (
+      manifest: string,
+      options: { tag: string; repo?: string; artifactDir?: string },
+    ) => {
+      await publishNativeArtifactSet({
+        manifestPath: manifest,
+        tag: options.tag,
+        repository: options.repo,
+        artifactDir: options.artifactDir,
+      });
+      console.log(`Published native artifact set to release ${options.tag}.`);
+    });
 
   // Creation is routed to the generator before Commander parses the command,
   // but it must still be registered here so it appears in top-level help.
@@ -480,6 +605,16 @@ function parseIntegerOption(value: string): number {
     throw new Error(`Expected a positive integer, received "${value}".`);
   }
   return next;
+}
+
+function parseNativePlatform(value: string): "linux" | "windows" | "macos" {
+  if (value === "linux" || value === "windows" || value === "macos") return value;
+  throw new Error(`Expected linux, windows, or macos; received "${value}".`);
+}
+
+function parseNativeArchitecture(value: string): "amd64" | "arm64" {
+  if (value === "amd64" || value === "arm64") return value;
+  throw new Error(`Expected amd64 or arm64; received "${value}".`);
 }
 
 function parseRegistryKind(value?: string): RegistryKind | undefined {
