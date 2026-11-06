@@ -10,6 +10,7 @@
   },
   "files": [
     "dist",
+    "contracts",
     "README.md"
   ],
   "scripts": {
